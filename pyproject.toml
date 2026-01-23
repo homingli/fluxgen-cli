@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fluxgen-cli"
+version = "0.1.1"
+description = "A CLI tool for text-to-image generation using mflux"
+authors = [{name = "opencode"}]
+dependencies = ["mflux>=0.14.0", "wonderwords"]
+requires-python = ">=3.10"
+readme = "README.md"
+
+[project.scripts]
+fluxgen = "fluxgen.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fluxgen*"]
