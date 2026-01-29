@@ -41,3 +41,4 @@ Thumbs.db
 
 # Ruff cache
 .ruff_cache/
+.fluxgen.toml
