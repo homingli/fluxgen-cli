@@ -1,7 +1,7 @@
 import argparse
 import sys
 from pathlib import Path
-from fluxgen.generator import generate_image, generate_random_filename
+from fluxgen.generator import generate_image, generate_random_filename, SUPPORTED_MODELS, DEFAULT_MODEL
 from fluxgen.presets import PRESETS
 from fluxgen.config import load_config, get_config_value
 
@@ -48,6 +48,11 @@ def main():
     parser.add_argument(
         "--no-style", action="store_const", const="none", dest="style",
         help="Disable styling (alias for --style none)"
+    )
+    parser.add_argument(
+        "--model", type=str, choices=SUPPORTED_MODELS,
+        default=get_config_value(config, "model", DEFAULT_MODEL),
+        help=f"Model to use (default: {DEFAULT_MODEL})"
     )
     parser.add_argument(
         "--width", type=int, 
@@ -106,6 +111,7 @@ def main():
             custom_styles=config.get("styles"),
             init_image=args.init_image,
             strength=args.strength,
+            model_name=args.model,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

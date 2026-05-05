@@ -1,22 +1,91 @@
 import random
 from pathlib import Path
-from mflux.models.flux.variants.txt2img.flux import Flux1
+from PIL import Image
+
+from mflux.models.common.config import ModelConfig
+
+# Supported model identifiers
+SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux1-schnell"]
+DEFAULT_MODEL = "zimage-turbo"
+
 
 class ModelManager:
-    """Manages Flux1 model instances to allow caching in programmatic use."""
+    """Manages model instances with caching and multi-model support.
+
+    Supported models:
+      - zimage-turbo  (default) — fast, guidance-free ZImage variant
+      - zimage                  — full ZImage with guidance support
+      - flux1-schnell           — FLUX.1 Schnell text-to-image
+    """
+
     _instance = None
     _current_config = None
 
     @classmethod
-    def get_model(cls, model_name: str, quantize: int) -> Flux1:
-        config = (model_name, quantize)
-        if cls._instance is None or cls._current_config != config:
-            cls._instance = Flux1.from_name(
-                model_name=model_name,
-                quantize=quantize,
+    def get_model(cls, model_name: str, quantize: int | None = None):
+        """Return a cached model instance, re-creating only when config changes."""
+        model_name = model_name.lower()
+        if model_name not in SUPPORTED_MODELS:
+            raise ValueError(
+                f"Unsupported model '{model_name}'. "
+                f"Choose from: {', '.join(SUPPORTED_MODELS)}"
             )
-            cls._current_config = config
+
+        config_key = (model_name, quantize)
+        if cls._instance is None or cls._current_config != config_key:
+            cls._instance = cls._create_model(model_name, quantize)
+            cls._current_config = config_key
         return cls._instance
+
+    @classmethod
+    def _create_model(cls, model_name: str, quantize: int | None):
+        """Instantiate the appropriate model class."""
+        if model_name == "flux1-schnell":
+            from mflux.models.flux.variants.txt2img.flux import Flux1
+
+            return Flux1(
+                quantize=quantize,
+                model_config=ModelConfig.schnell(),
+            )
+        elif model_name == "zimage":
+            from mflux.models.z_image import ZImage
+
+            return ZImage(
+                quantize=quantize,
+                model_config=ModelConfig.z_image(),
+            )
+        else:  # zimage-turbo (default)
+            from mflux.models.z_image import ZImageTurbo
+
+            return ZImageTurbo(
+                quantize=quantize,
+                model_config=ModelConfig.z_image_turbo(),
+            )
+
+    @classmethod
+    def reset(cls):
+        """Clear the cached model (useful for switching models)."""
+        cls._instance = None
+        cls._current_config = None
+
+
+# ── Model-specific default parameters ────────────────────────────────────────
+
+MODEL_DEFAULTS = {
+    "zimage-turbo": {
+        "guidance": 0.0,       # turbo ignores guidance
+        "steps": 4,
+    },
+    "zimage": {
+        "guidance": 4.0,       # supports classifier-free guidance
+        "steps": 20,
+    },
+    "flux1-schnell": {
+        "guidance": 0.0,       # schnell ignores guidance
+        "steps": 4,
+    },
+}
+
 
 class StyleManager:
     """Manages prompt styling."""
@@ -60,6 +129,7 @@ def generate_image(
     custom_styles: dict[str, str] | None = None,
     init_image: str | None = None,
     strength: float = 0.4,
+    model_name: str = DEFAULT_MODEL,
 ) -> None:
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
@@ -79,22 +149,39 @@ def generate_image(
         if not init_path.is_file():
             raise ValueError(f"Reference image must be a file: {init_image}")
 
+    # Resolve model-specific defaults
+    defaults = MODEL_DEFAULTS.get(model_name.lower(), MODEL_DEFAULTS[DEFAULT_MODEL])
+    steps = preset.get("steps", defaults["steps"])
+    guidance = preset.get("guidance", defaults["guidance"])
+
     # Use ModelManager for caching
-    flux = ModelManager.get_model(
-        model_name=preset["model"],
-        quantize=preset["quantize"],
+    model = ModelManager.get_model(
+        model_name=model_name,
+        quantize=preset.get("quantize"),
     )
 
-    image = flux.generate_image(
+    # Build generate_image kwargs — common across all models
+    gen_kwargs = dict(
         seed=seed,
         prompt=styled_prompt,
-        num_inference_steps=preset["steps"],
-        guidance=preset["guidance"],
+        num_inference_steps=steps,
         height=height,
         width=width,
         image_path=init_image,
         image_strength=strength,
     )
+
+    # Add guidance only for models that support it
+    if model_name.lower() != "zimage-turbo":
+        gen_kwargs["guidance"] = guidance
+
+    result = model.generate_image(**gen_kwargs)
+
+    # Flux1 returns a GeneratedImage wrapper; extract the PIL image
+    if hasattr(result, "image"):
+        image = result.image
+    else:
+        image = result
 
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)

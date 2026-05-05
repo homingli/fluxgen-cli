@@ -1,20 +1,17 @@
 PRESETS = {
     0: {
-        "model": "schnell",
-        "steps": 2,
-        "quantize": 8,
-        "guidance": 3.5,
+        "steps": 5,
+        "quantize": 4,
+        "guidance": 4.0,
     },
     3: {
-        "model": "schnell",
-        "steps": 4,
-        "quantize": 6,
-        "guidance": 3.5,
+        "steps": 9,
+        "quantize": 8,
+        "guidance": 4.0,
     },
     8: {
-        "model": "dev",
         "steps": 15,
         "quantize": 8,
-        "guidance": 3.5,
+        "guidance": 4.0,
     },
 }
