@@ -4,9 +4,16 @@ A CLI tool for text-to-image and image-to-image generation using mflux, focused 
 
 ## Installation
 
-1. Ensure Python 3.10+ and pip are installed.
-2. Install mflux: `pip install mflux`
-3. Install this tool: `pip install -e .` (from the directory)
+1. Install [uv](https://github.com/astral-sh/uv) if not already installed.
+2. Install the CLI: `uv tool install .`
+
+### Requirements
+
+- **HuggingFace Token**: You must have a HuggingFace token to download the flux.1 model. Set it as environment variable:
+  ```bash
+  export HF_TOKEN="your_huggingface_token"
+  ```
+  Or log in with `hf login` after installing `huggingface-hub`.
 
 ## Usage
 
@@ -30,6 +37,8 @@ fluxgen --prompt "A portrait" --output-dir portraits    # Save to portraits/ dir
 - `--output FILE`: Output file
 - `--output-dir DIR`: Output directory (default: output)
 - `--seed INT`: Random seed (auto if omitted)
+- `--width INT`: Image width
+- `--height INT`: Image height
 - `--init-image` / `--image-path` FILE: Reference image for img2img
 - `--strength` / `--image-strength` FLOAT: Influence strength (0.0-1.0, default 0.4)
 
