@@ -1,6 +1,6 @@
 # fluxgen-cli
 
-A CLI tool for text-to-image and image-to-image generation using mflux, focused on speed and low GPU requirements.
+A CLI tool for text-to-image and image-to-image generation using [mflux](https://github.com/filipstrand/mflux), focused on speed and low GPU requirements. Supports multiple model backends including ZImage Turbo, ZImage, and FLUX.1 Schnell.
 
 ## Installation
 
@@ -9,7 +9,7 @@ A CLI tool for text-to-image and image-to-image generation using mflux, focused 
 
 ### Requirements
 
-- **HuggingFace Token**: You must have a HuggingFace token to download the flux.1 model. Set it as environment variable:
+- **HuggingFace Token**: You must have a HuggingFace token to download the models. Set it as environment variable:
   ```bash
   export HF_TOKEN="your_huggingface_token"
   ```
@@ -18,14 +18,17 @@ A CLI tool for text-to-image and image-to-image generation using mflux, focused 
 ## Usage
 
 ```bash
-fluxgen --prompt "A beautiful landscape" -0             # Fast preset (default)
-fluxgen --prompt "A city scene" --preset standard       # Named preset
-fluxgen --prompt "A fantasy world" --style cinematic    # Cinematic style
-fluxgen --prompt "Portrait" --style none                # Raw prompt (no style)
-fluxgen --prompt "A portrait" --output-dir portraits    # Save to portraits/ directory
+fluxgen "A beautiful landscape" -0                      # Fast preset (default, ZImage Turbo)
+fluxgen "A city scene" --preset standard                # Named preset
+fluxgen "A fantasy world" --style cinematic             # Cinematic style
+fluxgen "Portrait" --style none                         # Raw prompt (no style)
+fluxgen "A portrait" --output-dir portraits             # Save to portraits/ directory
+fluxgen "A cat" --model zimage                          # Use ZImage (guidance-enabled)
+fluxgen "A sunset" --model flux1-schnell                # Use FLUX.1 Schnell
 ```
 
 ### Options
+- `--model [zimage-turbo|zimage|flux1-schnell]`: Model backend (default: zimage-turbo)
 - `-0`, `--fast`: Fast preset (default)
 - `-3`, `--standard`: Standard preset
 - `-8`, `--quality`: Quality preset
@@ -42,12 +45,21 @@ fluxgen --prompt "A portrait" --output-dir portraits    # Save to portraits/ dir
 - `--init-image` / `--image-path` FILE: Reference image for img2img
 - `--strength` / `--image-strength` FLOAT: Influence strength (0.0-1.0, default 0.4)
 
+## Models
+
+| Model | ID | Guidance | Default Steps | Description |
+|---|---|---|---|---|
+| ZImage Turbo | `zimage-turbo` | ✗ | 4 | Fast, guidance-free generation (default) |
+| ZImage | `zimage` | ✓ | 20 | Full quality with classifier-free guidance |
+| FLUX.1 Schnell | `flux1-schnell` | ✗ | 4 | Black Forest Labs distilled model |
+
 ## Configuration
 
 You can create a `.fluxgen.toml` in the current directory or home directory to set persistent defaults and custom styles.
 
 ```toml
 [defaults]
+model = "zimage-turbo"
 output_dir = "my_images"
 width = 512
 height = 512
@@ -61,11 +73,20 @@ pixel = " in pixel art style, 16-bit aesthetic"
 ```
 
 ## Presets
-- 0: schnell, 2 steps, quantize 8
-- 3: schnell, 4 steps, quantize 6
-- 8: dev, 15 steps, quantize 8
+- 0 (`fast`): 5 steps, quantize 8, guidance 4.0
+- 3 (`standard`): 9 steps, quantize 6, guidance 4.0
+- 8 (`quality`): 15 steps, quantize 8, guidance 4.0
+
+> **Note:** Guidance values from presets are only applied to models that support it (e.g. `zimage`). Guidance-free models like `zimage-turbo` and `flux1-schnell` ignore the guidance parameter.
 
 ## Changelog
+
+### 0.1.3
+- Added multi-model support via `--model` flag.
+- Supported models: ZImage Turbo (default), ZImage, and FLUX.1 Schnell.
+- Model-specific default parameters (guidance, steps) applied automatically.
+- Model selection configurable via `.fluxgen.toml` (`model` key in `[defaults]`).
+- ModelManager refactored with lazy imports and automatic caching per model+quantize config.
 
 ### 0.1.2
 - Added support for `.fluxgen.toml` configuration file.
