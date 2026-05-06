@@ -25,6 +25,7 @@ fluxgen "Portrait" --style none                         # Raw prompt (no style)
 fluxgen "A portrait" --output-dir portraits             # Save to portraits/ directory
 fluxgen "A cat" --model zimage                          # Use ZImage (guidance-enabled)
 fluxgen "A sunset" --model flux1-schnell                # Use FLUX.1 Schnell
+fluxgen "A dog" --timer                                 # Show generation time
 ```
 
 ### Options
@@ -44,6 +45,7 @@ fluxgen "A sunset" --model flux1-schnell                # Use FLUX.1 Schnell
 - `--height INT`: Image height
 - `--init-image` / `--image-path` FILE: Reference image for img2img
 - `--strength` / `--image-strength` FLOAT: Influence strength (0.0-1.0, default 0.4)
+- `--timer`: Show how long image generation took (off by default)
 
 ## Models
 
@@ -80,6 +82,10 @@ pixel = " in pixel art style, 16-bit aesthetic"
 > **Note:** Guidance values from presets are only applied to models that support it (e.g. `zimage`). Guidance-free models like `zimage-turbo` and `flux1-schnell` ignore the guidance parameter.
 
 ## Changelog
+
+### 0.1.4
+- Added `--timer` flag to measure and display image generation time.
+- Timer is off by default; when enabled, prints elapsed time (e.g. `⏱ Generated in 12.34s`).
 
 ### 0.1.3
 - Added multi-model support via `--model` flag.

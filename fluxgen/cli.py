@@ -1,5 +1,6 @@
 import argparse
 import sys
+import time
 from pathlib import Path
 from fluxgen.generator import generate_image, generate_random_filename, SUPPORTED_MODELS, DEFAULT_MODEL
 from fluxgen.presets import PRESETS
@@ -74,6 +75,10 @@ def main():
         "--strength", "--image-strength", type=float, default=0.4, dest="strength",
         help="Strength of reference image influence (0.0-1.0, default: 0.4)"
     )
+    parser.add_argument(
+        "--timer", action="store_true", default=False,
+        help="Show how long image generation took"
+    )
 
     args = parser.parse_args()
 
@@ -100,6 +105,7 @@ def main():
     output_path = str(Path(args.output_dir) / output_path)
 
     try:
+        start = time.perf_counter() if args.timer else None
         generate_image(
             prompt=args.prompt,
             preset=preset,
@@ -113,6 +119,9 @@ def main():
             strength=args.strength,
             model_name=args.model,
         )
+        if start is not None:
+            elapsed = time.perf_counter() - start
+            print(f"⏱ Generated in {elapsed:.2f}s")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
