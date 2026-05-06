@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fluxgen-cli"
-version = "0.1.2"
+version = "0.1.4"
 description = "A CLI tool for text-to-image generation using mflux"
 authors = [{name = "hml"}]
 dependencies = ["mflux>=0.14.0", "wonderwords"]
