@@ -87,25 +87,7 @@ MODEL_DEFAULTS = {
 }
 
 
-class StyleManager:
-    """Manages prompt styling."""
-    DEFAULT_STYLES = {
-        "ghibli": " in Studio Ghibli style, whimsical animation",
-        "cinematic": " cinematic lighting, 8k resolution, highly detailed",
-        "none": ""
-    }
-
-    def __init__(self, custom_styles: dict[str, str] | None = None):
-        self.styles = self.DEFAULT_STYLES.copy()
-        if custom_styles:
-            self.styles.update(custom_styles)
-
-    def apply_style(self, prompt: str, style_name: str) -> str:
-        suffix = self.styles.get(style_name.lower())
-        if suffix is None:
-            # If style not found, treat it as "none" or maybe just return as is
-            return prompt
-        return f"{prompt}{suffix}"
+from fluxgen.styling import StyleManager
 
 def generate_random_filename() -> str:
     """Generate a random 3-word filename with .png extension"""

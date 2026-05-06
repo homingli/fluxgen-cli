@@ -21,7 +21,7 @@ A CLI tool for text-to-image and image-to-image generation using [mflux](https:/
 fluxgen "A beautiful landscape" -0                      # Fast preset (default, ZImage Turbo)
 fluxgen "A city scene" --preset standard                # Named preset
 fluxgen "A fantasy world" --style cinematic             # Cinematic style
-fluxgen "Portrait" --style none                         # Raw prompt (no style)
+fluxgen "Portrait" --style ghibli                       # Studio Ghibli style
 fluxgen "A portrait" --output-dir portraits             # Save to portraits/ directory
 fluxgen "A cat" --model zimage                          # Use ZImage (guidance-enabled)
 fluxgen "A sunset" --model flux1-schnell                # Use FLUX.1 Schnell
@@ -34,7 +34,7 @@ fluxgen "A dog" --timer                                 # Show generation time
 - `-3`, `--standard`: Standard preset
 - `-8`, `--quality`: Quality preset
 - `--preset [fast|standard|quality]`: Named preset override
-- `--style [ghibli|cinematic|none|...]`: Apply prompt styling
+- `--style [none|ghibli|cinematic|pixel|watercolor|anime|photorealistic|oil-painting|comic|minimal|cyberpunk]`: Apply prompt styling (default: none)
 - `--no-style`: Shortcut for `--style none`
 - `--steps INT`: Override steps
 - `--quantize INT`: Override quantize
@@ -66,13 +66,30 @@ output_dir = "my_images"
 width = 512
 height = 512
 preset = 0
-style = "ghibli"
+style = "none"  # default: no style applied; set to a style name to always apply it
 
 [styles]
-ghibli = " in Studio Ghibli style, whimsical animation"
-cinematic = " cinematic lighting, 8k resolution, highly detailed"
-pixel = " in pixel art style, 16-bit aesthetic"
+retro = " in retro 80s style, synthwave colors"
+surreal = " in surrealist style, dreamlike imagery, Salvador Dali inspired"
 ```
+
+### Built-in Styles
+
+| Style | Suffix appended to prompt |
+|---|---|
+| `none` | *(nothing — raw prompt)* |
+| `ghibli` | `in Studio Ghibli style, whimsical animation` |
+| `cinematic` | `cinematic lighting, 8k resolution, highly detailed` |
+| `pixel` | `in pixel art style, 16-bit aesthetic` |
+| `watercolor` | `in watercolor painting style, soft washes, artistic` |
+| `anime` | `in anime style, vibrant colors, detailed illustration` |
+| `photorealistic` | `photorealistic, ultra detailed, DSLR quality, natural lighting` |
+| `oil-painting` | `in oil painting style, rich textures, classical art` |
+| `comic` | `in comic book style, bold lines, cel shading` |
+| `minimal` | `minimalist design, clean lines, simple composition` |
+| `cyberpunk` | `cyberpunk aesthetic, neon lights, futuristic, dark atmosphere` |
+
+Custom styles in `[styles]` override built-in styles with the same name.
 
 ## Presets
 - 0 (`fast`): 5 steps, quantize 8, guidance 4.0
@@ -82,6 +99,11 @@ pixel = " in pixel art style, 16-bit aesthetic"
 > **Note:** Guidance values from presets are only applied to models that support it (e.g. `zimage`). Guidance-free models like `zimage-turbo` and `flux1-schnell` ignore the guidance parameter.
 
 ## Changelog
+
+### 0.1.5
+- **Breaking**: `--style` now defaults to `none` (raw prompt). Previously defaulted to `ghibli`.
+- Added 8 new built-in styles: pixel, watercolor, anime, photorealistic, oil-painting, comic, minimal, cyberpunk.
+- Refactored `StyleManager` into its own module (`fluxgen/styling.py`).
 
 ### 0.1.4
 - Added `--timer` flag to measure and display image generation time.
