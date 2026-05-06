@@ -43,8 +43,8 @@ def main():
     parser.add_argument("--seed", type=int, help="Random seed")
     parser.add_argument(
         "--style", type=str, 
-        default=get_config_value(config, "style", "ghibli"),
-        help="Style to apply (default: ghibli, use 'none' to disable)"
+        default=get_config_value(config, "style", "none"),
+        help="Style to apply (default: none). Available: ghibli, cinematic, pixel, watercolor, anime, photorealistic, oil-painting, comic, minimal, cyberpunk"
     )
     parser.add_argument(
         "--no-style", action="store_const", const="none", dest="style",
