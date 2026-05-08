@@ -2,6 +2,10 @@ import argparse
 import sys
 import time
 from pathlib import Path
+try:
+    from importlib.metadata import distribution
+except ImportError:
+    from importlib_metadata import distribution  # Python < 3.8 fallback
 from fluxgen.generator import generate_image, generate_random_filename, SUPPORTED_MODELS, DEFAULT_MODEL
 from fluxgen.presets import PRESETS
 from fluxgen.config import load_config, get_config_value
@@ -9,8 +13,14 @@ from fluxgen.config import load_config, get_config_value
 def main():
     config = load_config()
     
-    parser = argparse.ArgumentParser(description="Generate images using mflux")
+    # Get version from pyproject.toml
+    dist = distribution("fluxgen-cli")
+    version = dist.version
+    
+    parser = argparse.ArgumentParser(description=f"fluxgen v{version} - Generate images using mflux")
     parser.add_argument("prompt", help="Text prompt for image generation")
+    
+    parser.add_argument("--version", action="version", version=f"fluxgen {version}")
     
     # Presets
     parser.add_argument(

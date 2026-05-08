@@ -157,6 +157,7 @@ def generate_image(
     if model_name.lower() != "zimage-turbo":
         gen_kwargs["guidance"] = guidance
 
+    # Generate the image
     result = model.generate_image(**gen_kwargs)
 
     # Flux1 returns a GeneratedImage wrapper; extract the PIL image
