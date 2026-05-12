@@ -6,6 +6,7 @@ try:
     from importlib.metadata import distribution
 except ImportError:
     from importlib_metadata import distribution  # Python < 3.8 fallback
+
 from fluxgen.generator import generate_image, generate_random_filename, SUPPORTED_MODELS, DEFAULT_MODEL
 from fluxgen.presets import PRESETS
 from fluxgen.config import load_config, get_config_value
@@ -14,103 +15,114 @@ def main():
     config = load_config()
     
     # Get version from pyproject.toml
-    dist = distribution("fluxgen-cli")
-    version = dist.version
+    try:
+        dist = distribution("fluxgen-cli")
+        version = dist.version
+    except Exception:
+        version = "0.2.0"
     
-    parser = argparse.ArgumentParser(description=f"fluxgen v{version} - Generate images using mflux")
-    parser.add_argument("prompt", help="Text prompt for image generation")
-    
+    parser = argparse.ArgumentParser(description=f"fluxgen v{version} - AI Image Generation & Editing")
     parser.add_argument("--version", action="version", version=f"fluxgen {version}")
     
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # ── GENERATE COMMAND ──────────────────────────────────────────────────────
+    gen_parser = subparsers.add_parser("generate", aliases=["gen"], help="Generate an image from text")
+    gen_parser.add_argument("prompt", help="Text prompt for image generation")
+    
     # Presets
-    parser.add_argument(
+    gen_parser.add_argument(
         "-0", "--fast", action="store_const", const=0, dest="preset_idx",
         help="Fast preset (default)"
     )
-    parser.add_argument(
+    gen_parser.add_argument(
         "-3", "--standard", action="store_const", const=3, dest="preset_idx",
         help="Standard preset"
     )
-    parser.add_argument(
+    gen_parser.add_argument(
         "-8", "--quality", action="store_const", const=8, dest="preset_idx",
         help="Quality preset"
     )
-    parser.add_argument(
+    gen_parser.add_argument(
         "--preset", choices=["fast", "standard", "quality"], 
         help="Named preset (overrides numeric flags)"
     )
 
-    parser.add_argument("--steps", type=int, help="Override steps")
-    parser.add_argument("--quantize", type=int, help="Override quantize")
-    parser.add_argument(
+    gen_parser.add_argument("--steps", type=int, help="Override steps")
+    gen_parser.add_argument("--quantize", type=int, help="Override quantize")
+    gen_parser.add_argument(
         "--output", help="Output file path (auto-generated if not specified)"
     )
-    parser.add_argument(
+    gen_parser.add_argument(
         "--output-dir", type=str, 
         default=get_config_value(config, "output_dir", "output"),
-        help="Output directory for generated images (default: output)"
+        help="Output directory (default: output)"
     )
-    parser.add_argument("--seed", type=int, help="Random seed")
-    parser.add_argument(
+    gen_parser.add_argument("--seed", type=int, help="Random seed")
+    gen_parser.add_argument(
         "--style", type=str, 
         default=get_config_value(config, "style", "none"),
-        help="Style to apply (default: none). Available: ghibli, cinematic, pixel, watercolor, anime, photorealistic, oil-painting, comic, minimal, cyberpunk"
+        help="Style to apply (default: none)"
     )
-    parser.add_argument(
+    gen_parser.add_argument(
         "--no-style", action="store_const", const="none", dest="style",
-        help="Disable styling (alias for --style none)"
+        help="Disable styling"
     )
-    parser.add_argument(
+    gen_parser.add_argument(
         "--model", type=str, choices=SUPPORTED_MODELS,
         default=get_config_value(config, "model", DEFAULT_MODEL),
         help=f"Model to use (default: {DEFAULT_MODEL})"
     )
-    parser.add_argument(
-        "--width", type=int, 
-        default=get_config_value(config, "width", 1024), 
-        help="Image width"
-    )
-    parser.add_argument(
-        "--height", type=int, 
-        default=get_config_value(config, "height", 1024), 
-        help="Image height"
-    )
+    gen_parser.add_argument("--width", type=int, default=get_config_value(config, "width", 1024))
+    gen_parser.add_argument("--height", type=int, default=get_config_value(config, "height", 1024))
+    gen_parser.add_argument("--init-image", type=str, help="Reference image for img2img")
+    gen_parser.add_argument("--strength", type=float, default=0.4, help="Img2img strength")
+    gen_parser.add_argument("--timer", action="store_true", help="Show generation time")
 
-    # Image-to-image arguments
-    parser.add_argument(
-        "--init-image", "--image-path", type=str, dest="init_image",
-        help="Path to reference image for image-to-image generation"
+    # ── EDIT COMMAND ──────────────────────────────────────────────────────────
+    edit_parser = subparsers.add_parser("edit", help="Edit an image using instructions (Qwen-Image-Edit)")
+    edit_parser.add_argument("image", help="Path to the input image")
+    edit_parser.add_argument("prompt", help="Instruction for the edit (e.g., 'add a red hat')")
+    edit_parser.add_argument("--output", help="Output filename (saved in output dir)")
+    edit_parser.add_argument(
+        "--output-dir", type=str,
+        default=get_config_value(config, "output_dir", "output"),
+        help="Output directory (default: output)"
     )
-    parser.add_argument(
-        "--strength", "--image-strength", type=float, default=0.4, dest="strength",
-        help="Strength of reference image influence (0.0-1.0, default: 0.4)"
-    )
-    parser.add_argument(
-        "--timer", action="store_true", default=False,
-        help="Show how long image generation took"
-    )
+    edit_parser.add_argument("--steps", type=int, default=None, help="Override inference steps (default: 40)")
+    edit_parser.add_argument("--guidance", type=float, default=1.0, help="Guidance scale (default: 1.0)")
+    edit_parser.add_argument("--timer", action="store_true", help="Show execution time")
+
+    # ── BACKWARD COMPATIBILITY ────────────────────────────────────────────────
+    # If no recognized command is given and there's at least one argument, default to 'generate'
+    if len(sys.argv) > 1 and sys.argv[1] not in ["generate", "gen", "edit", "--version", "--help", "-h"]:
+        sys.argv.insert(1, "generate")
 
     args = parser.parse_args()
 
+    if args.command in ["generate", "gen"]:
+        handle_generate(args, config)
+    elif args.command == "edit":
+        handle_edit(args)
+    else:
+        parser.print_help()
+
+def handle_generate(args, config):
     # Determine preset index
     named_indices = {"fast": 0, "standard": 3, "quality": 8}
     preset_idx = args.preset_idx
     if args.preset:
         preset_idx = named_indices[args.preset]
     
-    # Fallback to config default or 0
     if preset_idx is None:
         preset_idx = get_config_value(config, "preset", 0)
     
     preset = PRESETS[preset_idx].copy()
-
-    # Overrides
     if args.steps:
         preset["steps"] = args.steps
     if args.quantize:
         preset["quantize"] = args.quantize
 
-    # Output path logic
     output_path = args.output if args.output else generate_random_filename()
     output_path = str(Path(args.output_dir) / output_path)
 
@@ -132,6 +144,43 @@ def main():
         if start is not None:
             elapsed = time.perf_counter() - start
             print(f"⏱ Generated in {elapsed:.2f}s")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def handle_edit(args):
+    try:
+        from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS
+
+        # Build output path inside the output directory
+        if args.output:
+            output_filename = args.output
+        else:
+            input_path = Path(args.image)
+            output_filename = f"edited_{input_path.name}"
+        output_path = str(Path(args.output_dir) / output_filename)
+
+        # Use the editor's default if --steps is not provided
+        steps = args.steps if args.steps is not None else EDIT_DEFAULT_STEPS
+        
+        start = time.perf_counter() if args.timer else None
+        
+        print("\nNOTE: First run will download the Q4_K_M GGUF model (~13GB).")
+        print("This requires disk space and a stable connection.\n")
+        
+        editor = ImageEditor()
+        editor.edit(
+            image_path=args.image,
+            prompt=args.prompt,
+            output_path=output_path,
+            steps=steps,
+            guidance_scale=args.guidance,
+        )
+        
+        if start is not None:
+            elapsed = time.perf_counter() - start
+            print(f"⏱ Edited in {elapsed:.2f}s")
+            
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
