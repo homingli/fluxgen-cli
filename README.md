@@ -89,7 +89,7 @@ If no command is provided, `fluxgen` treats the first argument as a generation p
 
 ## Editing Options
 
-- `--output FILE`: output filename, default `edited_<input-name>`
+- `--output FILE`: output filename, default random three-word PNG
 - `--output-dir DIR`: output directory, default `output`
 - `--steps INT`: inference steps, default `40`
 - `--guidance FLOAT`: guidance scale, default `1.0`

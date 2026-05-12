@@ -156,8 +156,7 @@ def handle_edit(args):
         if args.output:
             output_filename = args.output
         else:
-            input_path = Path(args.image)
-            output_filename = f"edited_{input_path.name}"
+            output_filename = generate_random_filename()
         output_path = str(Path(args.output_dir) / output_filename)
 
         # Use the editor's default if --steps is not provided

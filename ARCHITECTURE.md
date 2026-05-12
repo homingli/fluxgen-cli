@@ -85,7 +85,7 @@ Current-directory values override home values. The config supports:
 
 Generation defaults to a random three-word PNG filename in the configured output directory.
 
-Editing defaults to `edited_<input-name>` in the configured output directory.
+Editing defaults to a random three-word PNG filename in the configured output directory.
 
 Both flows create output directories as needed.
 

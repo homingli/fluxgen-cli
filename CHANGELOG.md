@@ -2,6 +2,7 @@
 
 ## 0.2.0 - 2026-05-12
 
+- Changed edit default output names to random Wonderwords filenames.
 - Added Qwen-Image-Edit 2511 editing through Diffusers with GGUF transformer weights.
 - Added `fluxgen edit image prompt` command for instruction-based image editing.
 - Added accelerator-aware edit dtype handling: `bfloat16` on MPS/CUDA, `float32` on CPU.
