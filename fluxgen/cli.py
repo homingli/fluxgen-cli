@@ -156,7 +156,20 @@ def handle_edit(args):
         if args.output:
             output_filename = args.output
         else:
-            output_filename = generate_random_filename()
+            # Use input filename base + random word suffix if no output is provided
+            input_path = Path(args.image)
+            base_name = input_path.stem
+
+            try:
+                from wonderwords import RandomWord
+                rw = RandomWord()
+                # Get one random word, max length 5
+                random_word = rw.random_words(1, word_max_length=5)[0]
+                # Construct the new filename: base_name_(random_word).png
+                output_filename = f"{base_name}_{random_word}.png"
+            except Exception:
+                # Fallback to old random naming if wonderwords fails
+                output_filename = generate_random_filename()
         output_path = str(Path(args.output_dir) / output_filename)
 
         # Use the editor's default if --steps is not provided
