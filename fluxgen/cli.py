@@ -1,4 +1,7 @@
 import argparse
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -11,25 +14,102 @@ from fluxgen.generator import generate_image, generate_random_filename, SUPPORTE
 from fluxgen.presets import PRESETS
 from fluxgen.config import load_config, get_config_value
 
-def main():
+logger = logging.getLogger("fluxgen")
+
+
+GLOBAL_FLAGS = {"-v", "--verbose", "-s", "--silent"}
+COMMANDS = {"generate", "gen", "edit"}
+PASSTHROUGH_FLAGS = {"--version", "--help", "-h"}
+
+
+def setup_logging(verbose=False, silent=False):
+    level = logging.DEBUG if verbose else logging.ERROR if silent else logging.INFO
+    handler = logging.StreamHandler()
+    handler.setLevel(level)
+    fmt = "%(levelname)s: %(message)s" if verbose else "%(message)s"
+    formatter = logging.Formatter(fmt)
+    handler.setFormatter(formatter)
+    logger.handlers.clear()
+    logger.addHandler(handler)
+    logger.setLevel(level)
+    logger.propagate = False
+
+
+def add_verbosity_flags(parser):
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Show debug output",
+    )
+    group.add_argument(
+        "-s",
+        "--silent",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Suppress non-error output",
+    )
+
+
+def with_default_command(argv):
+    insert_at = 0
+    while insert_at < len(argv) and argv[insert_at] in GLOBAL_FLAGS:
+        insert_at += 1
+
+    if insert_at == len(argv):
+        return argv
+
+    token = argv[insert_at]
+    if token in COMMANDS or token in PASSTHROUGH_FLAGS:
+        return argv
+
+    return argv[:insert_at] + ["generate"] + argv[insert_at:]
+
+
+@contextmanager
+def suppress_external_output(enabled):
+    if not enabled:
+        with nullcontext():
+            yield
+        return
+
+    with open(os.devnull, "w") as devnull:
+        with redirect_stdout(devnull), redirect_stderr(devnull):
+            yield
+
+
+def main(argv=None):
     config = load_config()
-    
+
     # Get version from pyproject.toml
     try:
         dist = distribution("fluxgen-cli")
         version = dist.version
     except Exception:
         version = "0.2.0"
-    
-    parser = argparse.ArgumentParser(description=f"fluxgen v{version} - AI Image Generation & Editing")
+
+    verbosity_parent = argparse.ArgumentParser(add_help=False)
+    add_verbosity_flags(verbosity_parent)
+
+    parser = argparse.ArgumentParser(
+        description=f"fluxgen v{version} - AI Image Generation & Editing",
+        parents=[verbosity_parent],
+    )
     parser.add_argument("--version", action="version", version=f"fluxgen {version}")
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # ── GENERATE COMMAND ──────────────────────────────────────────────────────
-    gen_parser = subparsers.add_parser("generate", aliases=["gen"], help="Generate an image from text")
+    gen_parser = subparsers.add_parser(
+        "generate",
+        aliases=["gen"],
+        help="Generate an image from text",
+        parents=[verbosity_parent],
+    )
     gen_parser.add_argument("prompt", help="Text prompt for image generation")
-    
+
     # Presets
     gen_parser.add_argument(
         "-0", "--fast", action="store_const", const=0, dest="preset_idx",
@@ -44,7 +124,7 @@ def main():
         help="Quality preset"
     )
     gen_parser.add_argument(
-        "--preset", choices=["fast", "standard", "quality"], 
+        "--preset", choices=["fast", "standard", "quality"],
         help="Named preset (overrides numeric flags)"
     )
 
@@ -54,13 +134,13 @@ def main():
         "--output", help="Output file path (auto-generated if not specified)"
     )
     gen_parser.add_argument(
-        "--output-dir", type=str, 
+        "--output-dir", type=str,
         default=get_config_value(config, "output_dir", "output"),
         help="Output directory (default: output)"
     )
     gen_parser.add_argument("--seed", type=int, help="Random seed")
     gen_parser.add_argument(
-        "--style", type=str, 
+        "--style", type=str,
         default=get_config_value(config, "style", "none"),
         help="Style to apply (default: none)"
     )
@@ -80,7 +160,11 @@ def main():
     gen_parser.add_argument("--timer", action="store_true", help="Show generation time")
 
     # ── EDIT COMMAND ──────────────────────────────────────────────────────────
-    edit_parser = subparsers.add_parser("edit", help="Edit an image using instructions (Qwen-Image-Edit)")
+    edit_parser = subparsers.add_parser(
+        "edit",
+        help="Edit an image using instructions (Qwen-Image-Edit)",
+        parents=[verbosity_parent],
+    )
     edit_parser.add_argument("image", help="Path to the input image")
     edit_parser.add_argument("prompt", help="Instruction for the edit (e.g., 'add a red hat')")
     edit_parser.add_argument("--output", help="Output filename (saved in output dir)")
@@ -93,19 +177,22 @@ def main():
     edit_parser.add_argument("--guidance", type=float, default=1.0, help="Guidance scale (default: 1.0)")
     edit_parser.add_argument("--timer", action="store_true", help="Show execution time")
 
-    # ── BACKWARD COMPATIBILITY ────────────────────────────────────────────────
-    # If no recognized command is given and there's at least one argument, default to 'generate'
-    if len(sys.argv) > 1 and sys.argv[1] not in ["generate", "gen", "edit", "--version", "--help", "-h"]:
-        sys.argv.insert(1, "generate")
+    args = parser.parse_args(with_default_command(list(sys.argv[1:] if argv is None else argv)))
 
-    args = parser.parse_args()
+    if getattr(args, "verbose", False) and getattr(args, "silent", False):
+        parser.error("argument -s/--silent: not allowed with argument -v/--verbose")
 
-    if args.command in ["generate", "gen"]:
-        handle_generate(args, config)
-    elif args.command == "edit":
-        handle_edit(args)
-    else:
-        parser.print_help()
+    # Resolve verbosity/silent and apply logging
+    silent = getattr(args, "silent", False)
+    setup_logging(verbose=getattr(args, "verbose", False), silent=silent)
+
+    with suppress_external_output(silent):
+        if args.command in ["generate", "gen"]:
+            handle_generate(args, config)
+        elif args.command == "edit":
+            handle_edit(args)
+        else:
+            parser.print_help()
 
 def handle_generate(args, config):
     # Determine preset index
@@ -113,10 +200,10 @@ def handle_generate(args, config):
     preset_idx = args.preset_idx
     if args.preset:
         preset_idx = named_indices[args.preset]
-    
+
     if preset_idx is None:
         preset_idx = get_config_value(config, "preset", 0)
-    
+
     preset = PRESETS[preset_idx].copy()
     if args.steps:
         preset["steps"] = args.steps
@@ -143,9 +230,9 @@ def handle_generate(args, config):
         )
         if start is not None:
             elapsed = time.perf_counter() - start
-            print(f"⏱ Generated in {elapsed:.2f}s")
+            logger.info(f"\u23a1 Generated in {elapsed:.2f}s")
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        logger.error(f"Error: {e}")
         sys.exit(1)
 
 def handle_edit(args):
@@ -165,7 +252,7 @@ def handle_edit(args):
                 rw = RandomWord()
                 # Get one random word, max length 5
                 random_word = rw.random_words(1, word_max_length=5)[0]
-                # Construct the new filename: base_name_(random_word).png
+                # Construct the new filename: base_name_(random-word).png
                 output_filename = f"{base_name}_{random_word}.png"
             except Exception:
                 # Fallback to old random naming if wonderwords fails
@@ -174,12 +261,11 @@ def handle_edit(args):
 
         # Use the editor's default if --steps is not provided
         steps = args.steps if args.steps is not None else EDIT_DEFAULT_STEPS
-        
+
         start = time.perf_counter() if args.timer else None
-        
-        print("\nNOTE: First run will download the Q4_K_M GGUF model (~13GB).")
-        print("This requires disk space and a stable connection.\n")
-        
+
+        logger.info("First run will download the Q4_K_M GGUF model (~13GB). It requires disk space and a stable connection.")
+
         editor = ImageEditor()
         editor.edit(
             image_path=args.image,
@@ -188,13 +274,13 @@ def handle_edit(args):
             steps=steps,
             guidance_scale=args.guidance,
         )
-        
+
         if start is not None:
             elapsed = time.perf_counter() - start
-            print(f"⏱ Edited in {elapsed:.2f}s")
-            
+            logger.info(f"\u23a1 Edited in {elapsed:.2f}s")
+
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        logger.error(f"Error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

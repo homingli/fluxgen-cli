@@ -1,3 +1,4 @@
+import logging
 import random
 from pathlib import Path
 from PIL import Image
@@ -7,6 +8,8 @@ from mflux.models.common.config import ModelConfig
 # Supported model identifiers
 SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux1-schnell"]
 DEFAULT_MODEL = "zimage-turbo"
+
+logger = logging.getLogger("fluxgen")
 
 
 class ModelManager:
@@ -136,6 +139,8 @@ def generate_image(
     steps = preset.get("steps", defaults["steps"])
     guidance = preset.get("guidance", defaults["guidance"])
 
+    logger.debug(f"Using model '{model_name}' with {steps} steps, seed={seed}")
+
     # Use ModelManager for caching
     model = ModelManager.get_model(
         model_name=model_name,
@@ -169,4 +174,4 @@ def generate_image(
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(output_path)
-    print(f"Image saved to {output_path}")
+    logger.info(f"Image saved to {output_path}")

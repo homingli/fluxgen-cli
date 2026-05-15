@@ -1,11 +1,14 @@
+import logging
 import torch
 from PIL import Image
 from pathlib import Path
 import warnings
 from huggingface_hub import hf_hub_download
 
+logger = logging.getLogger("fluxgen")
+
 # Default inference parameters for the edit pipeline
-EDIT_DEFAULT_STEPS = 40
+EDIT_DEFAULT_STEPS = 10
 EDIT_DEFAULT_GUIDANCE = 1.0
 EDIT_DEFAULT_TRUE_CFG = 4.0
 
@@ -52,10 +55,10 @@ class ImageEditor:
 
         compute_dtype = self._get_compute_dtype()
 
-        print(f"Downloading/loading GGUF weights: {GGUF_REPO}/{GGUF_FILENAME}...")
+        logger.debug(f"Downloading/loading GGUF weights: {GGUF_REPO}/{GGUF_FILENAME}...")
         ckpt_path = hf_hub_download(repo_id=GGUF_REPO, filename=GGUF_FILENAME)
 
-        print(f"Loading GGUF transformer from {ckpt_path}...")
+        logger.debug(f"Loading GGUF transformer from {ckpt_path}...")
         transformer = QwenImageTransformer2DModel.from_single_file(
             ckpt_path,
             quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
@@ -64,7 +67,7 @@ class ImageEditor:
             torch_dtype=compute_dtype,
         )
 
-        print(f"Loading pipeline ({BASE_MODEL_CONFIG}) on {self.device}...")
+        logger.info(f"Loading pipeline ({BASE_MODEL_CONFIG}) on {self.device}...")
         self.pipe = QwenImageEditPlusPipeline.from_pretrained(
             BASE_MODEL_CONFIG,
             transformer=transformer,
@@ -74,7 +77,7 @@ class ImageEditor:
             self.pipe.to("cpu")
         else:
             self.pipe.enable_model_cpu_offload(device=self.device)
-        self.pipe.set_progress_bar_config(disable=None)
+        self.pipe.set_progress_bar_config(disable=logger.getEffectiveLevel() > logging.INFO)
 
     def edit(
         self,
@@ -90,7 +93,7 @@ class ImageEditor:
 
         image = Image.open(image_path).convert("RGB")
 
-        print(f"Editing image with prompt: '{prompt}'...")
+        logger.debug(f"Editing image with prompt: '{prompt}'...")
         with warnings.catch_warnings(record=True) as caught_warnings:
             warnings.simplefilter("always", RuntimeWarning)
             with torch.inference_mode():
@@ -117,7 +120,7 @@ class ImageEditor:
         out_path = Path(output_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         result.save(out_path)
-        print(f"Edited image saved to {out_path}")
+        logger.info(f"Edited image saved to {out_path}")
 
     @staticmethod
     def _is_blank_black(image: Image.Image) -> bool:

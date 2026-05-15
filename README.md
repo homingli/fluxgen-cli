@@ -68,6 +68,11 @@ If no command is provided, `fluxgen` treats the first argument as a generation p
 | `generate`, `gen` | `fluxgen gen "prompt"` | Generate an image from text or a reference image |
 | `edit` | `fluxgen edit image.png "instruction"` | Edit an existing image with Qwen-Image-Edit |
 
+## Global Options
+
+- `-s`, `--silent`: suppress non-error output
+- `-v`, `--verbose`: show debug output
+
 ## Generation Options
 
 - `--model [zimage-turbo|zimage|flux1-schnell]`: model backend, default `zimage-turbo`

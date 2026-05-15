@@ -40,3 +40,41 @@ def test_edit_default_output_uses_random_filename():
         for call in editor.edit.call_args_list
     ]
     assert output_paths == ["output/one-two-red.png", "output/four-five-blue.png"]
+
+
+def test_default_generate_accepts_global_flag_before_prompt():
+    cli = load_cli_without_mflux()
+
+    with patch.object(cli, "load_config", return_value={}), \
+         patch.object(cli, "handle_generate") as handle_generate:
+        cli.main(["-s", "a quiet prompt"])
+
+    args = handle_generate.call_args.args[0]
+    assert args.command == "generate"
+    assert args.prompt == "a quiet prompt"
+    assert args.silent is True
+
+
+def test_subcommand_accepts_global_flag_after_command():
+    cli = load_cli_without_mflux()
+
+    with patch.object(cli, "load_config", return_value={}), \
+         patch.object(cli, "handle_generate") as handle_generate:
+        cli.main(["gen", "-v", "a noisy prompt"])
+
+    args = handle_generate.call_args.args[0]
+    assert args.command == "gen"
+    assert args.prompt == "a noisy prompt"
+    assert args.verbose is True
+
+
+def test_silent_keeps_errors_visible_and_hides_info(capsys):
+    cli = load_cli_without_mflux()
+
+    cli.setup_logging(silent=True)
+    cli.logger.info("hidden")
+    cli.logger.error("Error: visible")
+
+    captured = capsys.readouterr()
+    assert "hidden" not in captured.err
+    assert "Error: visible" in captured.err
