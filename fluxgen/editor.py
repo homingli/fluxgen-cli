@@ -67,12 +67,13 @@ class ImageEditor:
             torch_dtype=compute_dtype,
         )
 
-        logger.info(f"Loading pipeline ({BASE_MODEL_CONFIG}) on {self.device}...")
+        logger.info(f"Loading pipeline components ({BASE_MODEL_CONFIG}) on {self.device}...")
         self.pipe = QwenImageEditPlusPipeline.from_pretrained(
             BASE_MODEL_CONFIG,
             transformer=transformer,
             torch_dtype=compute_dtype,
         )
+        logger.debug("Pipeline loaded successfully.")
         if self.device == "cpu":
             self.pipe.to("cpu")
         else:
@@ -89,9 +90,16 @@ class ImageEditor:
         true_cfg_scale: float = EDIT_DEFAULT_TRUE_CFG,
     ) -> None:
         """Perform instruction-based image editing."""
+        input_path = Path(image_path).expanduser().resolve()
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input image not found: {input_path}")
+        if not input_path.is_file():
+            raise ValueError(f"Input image must be a file: {input_path}")
+
         self._load_pipeline()
 
-        image = Image.open(image_path).convert("RGB")
+        logger.debug(f"Opening input image: {input_path}")
+        image = Image.open(input_path).convert("RGB")
 
         logger.debug(f"Editing image with prompt: '{prompt}'...")
         with warnings.catch_warnings(record=True) as caught_warnings:

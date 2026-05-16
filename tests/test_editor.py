@@ -52,8 +52,11 @@ def test_editor_init_no_pipeline_loaded():
 @patch("diffusers.QwenImageTransformer2DModel")
 @patch("diffusers.GGUFQuantizationConfig")
 @patch("PIL.Image.open")
-def test_editor_edit_flow(mock_image_open, mock_gguf_config, mock_transformer_cls, mock_pipeline_cls, mock_hf_download):
+def test_editor_edit_flow(mock_image_open, mock_gguf_config, mock_transformer_cls, mock_pipeline_cls, mock_hf_download, tmp_path):
     """Verify the full edit flow wires up correctly."""
+    input_image = tmp_path / "dummy.png"
+    input_image.write_bytes(b"fake")
+
     # Setup mocks
     mock_hf_download.return_value = "/tmp/dummy.gguf"
     mock_transformer = MagicMock()
@@ -75,7 +78,7 @@ def test_editor_edit_flow(mock_image_open, mock_gguf_config, mock_transformer_cl
 
     # Run edit with explicit steps
     editor.edit(
-        image_path="dummy.png",
+        image_path=str(input_image),
         prompt="make it red",
         output_path="output/edited.png",
         steps=10,
@@ -96,7 +99,10 @@ def test_editor_edit_flow(mock_image_open, mock_gguf_config, mock_transformer_cl
 
 
 @patch("PIL.Image.open")
-def test_editor_rejects_blank_black_output(mock_image_open):
+def test_editor_rejects_blank_black_output(mock_image_open, tmp_path):
+    input_image = tmp_path / "dummy.png"
+    input_image.write_bytes(b"fake")
+
     editor = ImageEditor()
     editor.pipe = MagicMock()
 
@@ -109,7 +115,7 @@ def test_editor_rejects_blank_black_output(mock_image_open):
 
     with pytest.raises(RuntimeError, match="invalid/blank output"):
         editor.edit(
-            image_path="dummy.png",
+            image_path=str(input_image),
             prompt="test",
             output_path="output/out.png",
         )
@@ -122,8 +128,11 @@ def test_editor_rejects_blank_black_output(mock_image_open):
 @patch("diffusers.QwenImageTransformer2DModel")
 @patch("diffusers.GGUFQuantizationConfig")
 @patch("PIL.Image.open")
-def test_editor_uses_default_steps(mock_image_open, mock_gguf_config, mock_transformer_cls, mock_pipeline_cls, mock_hf_download):
+def test_editor_uses_default_steps(mock_image_open, mock_gguf_config, mock_transformer_cls, mock_pipeline_cls, mock_hf_download, tmp_path):
     """When no steps are provided, the default (40) should be used."""
+    input_image = tmp_path / "dummy.png"
+    input_image.write_bytes(b"fake")
+
     mock_hf_download.return_value = "/tmp/dummy.gguf"
     mock_transformer_cls.from_single_file.return_value = MagicMock()
     mock_pipeline = MagicMock()
@@ -138,10 +147,25 @@ def test_editor_uses_default_steps(mock_image_open, mock_gguf_config, mock_trans
 
     # Call without specifying steps — should use EDIT_DEFAULT_STEPS
     editor.edit(
-        image_path="dummy.png",
+        image_path=str(input_image),
         prompt="test",
         output_path="output/out.png",
     )
 
     infer_kwargs = mock_pipeline.call_args.kwargs
     assert infer_kwargs["num_inference_steps"] == EDIT_DEFAULT_STEPS
+
+
+def test_editor_missing_input_fails_before_pipeline_load(tmp_path):
+    editor = ImageEditor()
+    editor._load_pipeline = MagicMock()
+    missing_image = tmp_path / "missing.png"
+
+    with pytest.raises(FileNotFoundError, match="Input image not found"):
+        editor.edit(
+            image_path=str(missing_image),
+            prompt="test",
+            output_path="output/out.png",
+        )
+
+    editor._load_pipeline.assert_not_called()

@@ -2,6 +2,7 @@ import importlib
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+import pytest
 
 
 def load_cli_without_mflux():
@@ -16,10 +17,12 @@ def load_cli_without_mflux():
         return importlib.import_module("fluxgen.cli")
 
 
-def test_edit_default_output_uses_random_filename():
+def test_edit_default_output_uses_random_filename(tmp_path):
     cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
     args = SimpleNamespace(
-        image="input.png",
+        image=str(input_image),
         prompt="make it sunset",
         output=None,
         output_dir="output",
@@ -28,8 +31,9 @@ def test_edit_default_output_uses_random_filename():
         timer=False,
     )
 
-    with patch.object(cli, "generate_random_filename", side_effect=["one-two-red.png", "four-five-blue.png"]), \
+    with patch("wonderwords.RandomWord") as mock_random_word_cls, \
          patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
+        mock_random_word_cls.return_value.random_words.side_effect = [["red"], ["blue"]]
         editor = mock_editor_cls.return_value
 
         cli.handle_edit(args)
@@ -39,7 +43,28 @@ def test_edit_default_output_uses_random_filename():
         call.kwargs["output_path"]
         for call in editor.edit.call_args_list
     ]
-    assert output_paths == ["output/one-two-red.png", "output/four-five-blue.png"]
+    assert output_paths == ["output/input_red.png", "output/input_blue.png"]
+
+
+def test_edit_missing_input_exits_before_editor_load(tmp_path):
+    cli = load_cli_without_mflux()
+    missing_image = tmp_path / "missing.png"
+    args = SimpleNamespace(
+        image=str(missing_image),
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        timer=False,
+    )
+
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
+         pytest.raises(SystemExit) as exc:
+        cli.handle_edit(args)
+
+    assert exc.value.code == 1
+    mock_editor_cls.assert_not_called()
 
 
 def test_default_generate_accepts_global_flag_before_prompt():

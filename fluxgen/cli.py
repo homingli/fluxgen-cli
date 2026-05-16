@@ -173,7 +173,7 @@ def main(argv=None):
         default=get_config_value(config, "output_dir", "output"),
         help="Output directory (default: output)"
     )
-    edit_parser.add_argument("--steps", type=int, default=None, help="Override inference steps (default: 40)")
+    edit_parser.add_argument("--steps", type=int, default=None, help="Override inference steps (default: 10)")
     edit_parser.add_argument("--guidance", type=float, default=1.0, help="Guidance scale (default: 1.0)")
     edit_parser.add_argument("--timer", action="store_true", help="Show execution time")
 
@@ -214,6 +214,13 @@ def handle_generate(args, config):
     output_path = str(Path(args.output_dir) / output_path)
 
     try:
+        # Pre-load model before timer starts
+        from fluxgen.generator import ModelManager
+        ModelManager.get_model(
+            model_name=args.model,
+            quantize=preset.get("quantize"),
+        )
+
         start = time.perf_counter() if args.timer else None
         generate_image(
             prompt=args.prompt,
@@ -231,20 +238,35 @@ def handle_generate(args, config):
         if start is not None:
             elapsed = time.perf_counter() - start
             logger.info(f"\u23a1 Generated in {elapsed:.2f}s")
+    except FileNotFoundError as e:
+        logger.error(f"Error: {e}")
+        if getattr(args, "verbose", False):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Error: {e}")
+        if getattr(args, "verbose", False):
+            import traceback
+            traceback.print_exc()
         sys.exit(1)
 
 def handle_edit(args):
     try:
         from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS
 
+        # Robust path resolution (handles ~ and relative paths)
+        input_path = Path(args.image).expanduser().resolve()
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input image not found: {input_path}")
+        if not input_path.is_file():
+            raise ValueError(f"Input image must be a file: {input_path}")
+
         # Build output path inside the output directory
         if args.output:
             output_filename = args.output
         else:
             # Use input filename base + random word suffix if no output is provided
-            input_path = Path(args.image)
             base_name = input_path.stem
 
             try:
@@ -257,16 +279,22 @@ def handle_edit(args):
             except Exception:
                 # Fallback to old random naming if wonderwords fails
                 output_filename = generate_random_filename()
-        output_path = str(Path(args.output_dir) / output_filename)
+        output_dir = Path(args.output_dir).expanduser().resolve()
+        output_path = str(output_dir / output_filename)
 
         # Use the editor's default if --steps is not provided
         steps = args.steps if args.steps is not None else EDIT_DEFAULT_STEPS
 
-        start = time.perf_counter() if args.timer else None
-
-        logger.info("First run will download the Q4_K_M GGUF model (~13GB). It requires disk space and a stable connection.")
-
+        logger.info("Initializing ImageEditor...")
         editor = ImageEditor()
+ 
+        # Pre-load model before timer starts
+        logger.info("First run will download the Q4_K_M GGUF model (~13GB). It requires disk space and a stable connection.")
+        logger.info("Loading model weights...")
+        editor._load_pipeline()
+
+        logger.info(f"Applying edit: '{args.prompt}'")
+        start = time.perf_counter() if args.timer else None
         editor.edit(
             image_path=args.image,
             prompt=args.prompt,
@@ -279,8 +307,17 @@ def handle_edit(args):
             elapsed = time.perf_counter() - start
             logger.info(f"\u23a1 Edited in {elapsed:.2f}s")
 
+    except FileNotFoundError as e:
+        logger.error(f"Error: {e}")
+        if getattr(args, "verbose", False):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Error: {e}")
+        if getattr(args, "verbose", False):
+            import traceback
+            traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
