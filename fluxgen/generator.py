@@ -1,3 +1,4 @@
+import logging
 import random
 from pathlib import Path
 from PIL import Image
@@ -5,8 +6,10 @@ from PIL import Image
 from mflux.models.common.config import ModelConfig
 
 # Supported model identifiers
-SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux1-schnell"]
+SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux1-schnell", "flux2-klein"]
 DEFAULT_MODEL = "zimage-turbo"
+
+logger = logging.getLogger("fluxgen")
 
 
 class ModelManager:
@@ -16,6 +19,7 @@ class ModelManager:
       - zimage-turbo  (default) — fast, guidance-free ZImage variant
       - zimage                  — full ZImage with guidance support
       - flux1-schnell           — FLUX.1 Schnell text-to-image
+      - flux2-klein             — FLUX.2 Klein 9B model
     """
 
     _instance = None
@@ -54,6 +58,13 @@ class ModelManager:
                 quantize=quantize,
                 model_config=ModelConfig.z_image(),
             )
+        elif model_name == "flux2-klein":
+            from mflux.models.flux2.variants import Flux2Klein
+
+            return Flux2Klein(
+                quantize=quantize,
+                model_config=ModelConfig.flux2_klein_9b(),
+            )
         else:  # zimage-turbo (default)
             from mflux.models.z_image import ZImageTurbo
 
@@ -82,6 +93,10 @@ MODEL_DEFAULTS = {
     },
     "flux1-schnell": {
         "guidance": 0.0,       # schnell ignores guidance
+        "steps": 4,
+    },
+    "flux2-klein": {
+        "guidance": 3.5,
         "steps": 4,
     },
 }
@@ -125,16 +140,18 @@ def generate_image(
         raise ValueError(f"strength must be between 0.0 and 1.0, got {strength}")
 
     if init_image is not None:
-        init_path = Path(init_image)
+        init_path = Path(init_image).expanduser().resolve()
         if not init_path.exists():
-            raise FileNotFoundError(f"Reference image not found: {init_image}")
+            raise FileNotFoundError(f"Reference image not found: {init_path}")
         if not init_path.is_file():
-            raise ValueError(f"Reference image must be a file: {init_image}")
+            raise ValueError(f"Reference image must be a file: {init_path}")
 
     # Resolve model-specific defaults
     defaults = MODEL_DEFAULTS.get(model_name.lower(), MODEL_DEFAULTS[DEFAULT_MODEL])
     steps = preset.get("steps", defaults["steps"])
     guidance = preset.get("guidance", defaults["guidance"])
+
+    logger.debug(f"Using model '{model_name}' with {steps} steps, seed={seed}")
 
     # Use ModelManager for caching
     model = ModelManager.get_model(
@@ -157,6 +174,7 @@ def generate_image(
     if model_name.lower() != "zimage-turbo":
         gen_kwargs["guidance"] = guidance
 
+    # Generate the image
     result = model.generate_image(**gen_kwargs)
 
     # Flux1 returns a GeneratedImage wrapper; extract the PIL image
@@ -168,4 +186,4 @@ def generate_image(
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(output_path)
-    print(f"Image saved to {output_path}")
+    logger.info(f"Image saved to {output_path}")
