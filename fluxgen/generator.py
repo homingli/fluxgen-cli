@@ -6,7 +6,7 @@ from PIL import Image
 from mflux.models.common.config import ModelConfig
 
 # Supported model identifiers
-SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux1-schnell", "flux2-klein"]
+SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
 DEFAULT_MODEL = "zimage-turbo"
 
 logger = logging.getLogger("fluxgen")
@@ -16,10 +16,10 @@ class ModelManager:
     """Manages model instances with caching and multi-model support.
 
     Supported models:
-      - zimage-turbo  (default) — fast, guidance-free ZImage variant
-      - zimage                  — full ZImage with guidance support
-      - flux1-schnell           — FLUX.1 Schnell text-to-image
-      - flux2-klein             — FLUX.2 Klein 9B model
+      - zimage-turbo   (default) — fast, guidance-free ZImage variant
+      - zimage                 — full ZImage with guidance support
+      - flux2-klein4b          — FLUX.2 Klein 4B model (default)
+      - flux2-klein9b          — FLUX.2 Klein 9B model
     """
 
     _instance = None
@@ -29,7 +29,7 @@ class ModelManager:
     def get_model(cls, model_name: str, quantize: int | None = None):
         """Return a cached model instance, re-creating only when config changes."""
         model_name = model_name.lower()
-        if model_name not in SUPPORTED_MODELS:
+        if model_name not in SUPPORTED_MODELS and model_name != "flux2-klein-edit":
             raise ValueError(
                 f"Unsupported model '{model_name}'. "
                 f"Choose from: {', '.join(SUPPORTED_MODELS)}"
@@ -44,24 +44,31 @@ class ModelManager:
     @classmethod
     def _create_model(cls, model_name: str, quantize: int | None):
         """Instantiate the appropriate model class."""
-        if model_name == "flux1-schnell":
-            from mflux.models.flux.variants.txt2img.flux import Flux1
-
-            return Flux1(
-                quantize=quantize,
-                model_config=ModelConfig.schnell(),
-            )
-        elif model_name == "zimage":
+        if model_name == "zimage":
             from mflux.models.z_image import ZImage
 
             return ZImage(
                 quantize=quantize,
                 model_config=ModelConfig.z_image(),
             )
-        elif model_name == "flux2-klein":
+        elif model_name == "flux2-klein4b":
             from mflux.models.flux2.variants import Flux2Klein
 
             return Flux2Klein(
+                quantize=quantize,
+                model_config=ModelConfig.flux2_klein_4b(),
+            )
+        elif model_name == "flux2-klein9b":
+            from mflux.models.flux2.variants import Flux2Klein
+
+            return Flux2Klein(
+                quantize=quantize,
+                model_config=ModelConfig.flux2_klein_9b(),
+            )
+        elif model_name == "flux2-klein-edit":
+            from mflux.models.flux2.variants import Flux2KleinEdit
+
+            return Flux2KleinEdit(
                 quantize=quantize,
                 model_config=ModelConfig.flux2_klein_9b(),
             )
@@ -91,11 +98,11 @@ MODEL_DEFAULTS = {
         "guidance": 4.0,       # supports classifier-free guidance
         "steps": 20,
     },
-    "flux1-schnell": {
-        "guidance": 0.0,       # schnell ignores guidance
+    "flux2-klein4b": {
+        "guidance": 3.5,
         "steps": 4,
     },
-    "flux2-klein": {
+    "flux2-klein9b": {
         "guidance": 3.5,
         "steps": 4,
     },
@@ -177,11 +184,7 @@ def generate_image(
     # Generate the image
     result = model.generate_image(**gen_kwargs)
 
-    # Flux1 returns a GeneratedImage wrapper; extract the PIL image
-    if hasattr(result, "image"):
-        image = result.image
-    else:
-        image = result
+    image = result.image if hasattr(result, "image") else result
 
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)

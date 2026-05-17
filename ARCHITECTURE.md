@@ -41,7 +41,8 @@ Supported generation backends:
 
 - `zimage-turbo`
 - `zimage`
-- `flux1-schnell`
+- `flux2-klein4b`
+- `flux2-klein9b`
 
 ## Editing Flow
 

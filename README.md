@@ -2,7 +2,7 @@
 
 CLI for local AI image generation and instruction-based image editing.
 
-- Generate images with `mflux` backends: `zimage-turbo`, `zimage`, and `flux1-schnell`.
+- Generate images with `mflux` backends: `zimage-turbo`, `zimage`, `flux2-klein4b`, and `flux2-klein9b`.
 - Edit existing images with Qwen-Image-Edit 2511 through Diffusers and GGUF weights.
 - Keep local defaults in `.fluxgen.toml`.
 
@@ -75,7 +75,7 @@ If no command is provided, `fluxgen` treats the first argument as a generation p
 
 ## Generation Options
 
-- `--model [zimage-turbo|zimage|flux1-schnell]`: model backend, default `zimage-turbo`
+- `--model [zimage-turbo|zimage|flux2-klein4b|flux2-klein9b]`: model backend, default `zimage-turbo`
 - `-0`, `--fast`: fast preset, default
 - `-3`, `--standard`: standard preset
 - `-8`, `--quality`: quality preset

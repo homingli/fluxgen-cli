@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 - 2026-05-16
+
+- Removed `flux1-schnell` model from supported backends (deprecated).
+- Split `flux2-klein` into `flux2-klein4b` (4B, default) and `flux2-klein9b` (9B). `flux2-klein` identifier removed.
+
 ## 0.2.0 - 2026-05-12
 
 - Changed edit default output names to random Wonderwords filenames.
@@ -9,6 +14,7 @@
 - Added invalid edit output detection so NaN/blank black results fail instead of being saved.
 - Added editor tests for pipeline wiring, defaults, dtype selection, and blank-output rejection.
 - Refreshed README and added architecture documentation.
+- Added `flux2-klein` (FLUX.2 Klein 9B) to supported models.
 
 ## 0.1.6
 
