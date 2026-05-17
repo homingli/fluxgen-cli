@@ -9,7 +9,7 @@ def load_cli_without_mflux():
     fake_generator = MagicMock()
     fake_generator.generate_image = MagicMock()
     fake_generator.generate_random_filename = MagicMock(return_value="fake.png")
-    fake_generator.SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux1-schnell"]
+    fake_generator.SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
     fake_generator.DEFAULT_MODEL = "zimage-turbo"
 
     with patch.dict(sys.modules, {"fluxgen.generator": fake_generator}):

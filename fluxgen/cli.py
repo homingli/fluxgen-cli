@@ -88,7 +88,7 @@ def main(argv=None):
         dist = distribution("fluxgen-cli")
         version = dist.version
     except Exception:
-        version = "0.2.0"
+        version = "0.3.0"
 
     verbosity_parent = argparse.ArgumentParser(add_help=False)
     add_verbosity_flags(verbosity_parent)
