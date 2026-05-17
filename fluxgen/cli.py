@@ -165,7 +165,7 @@ def main(argv=None):
         help="Edit an image using instructions (Qwen-Image-Edit)",
         parents=[verbosity_parent],
     )
-    edit_parser.add_argument("image", help="Path to the input image")
+    edit_parser.add_argument("image", nargs="+", help="Path to the input image(s)")
     edit_parser.add_argument("prompt", help="Instruction for the edit (e.g., 'add a red hat')")
     edit_parser.add_argument("--output", help="Output filename (saved in output dir)")
     edit_parser.add_argument(
@@ -173,8 +173,17 @@ def main(argv=None):
         default=get_config_value(config, "output_dir", "output"),
         help="Output directory (default: output)"
     )
-    edit_parser.add_argument("--steps", type=int, default=None, help="Override inference steps (default: 10)")
-    edit_parser.add_argument("--guidance", type=float, default=1.0, help="Guidance scale (default: 1.0)")
+    edit_parser.add_argument(
+        "--model", type=str, choices=["qwen-image-edit", "flux2-klein"],
+        default="flux2-klein",
+        help="Model to use for editing (default: flux2-klein)"
+    )
+    edit_parser.add_argument("--quantize", type=int, help="Override quantize for flux2-klein")
+    edit_parser.add_argument("--seed", type=int, help="Random seed")
+    edit_parser.add_argument("--steps", type=int, default=None, help="Override inference steps")
+    edit_parser.add_argument("--guidance", type=float, default=None, help="Guidance scale")
+    edit_parser.add_argument("--width", type=int, help="Output image width (defaults to input image width)")
+    edit_parser.add_argument("--height", "--length", type=int, dest="height", help="Output image height/length (defaults to input image height/length)")
     edit_parser.add_argument("--timer", action="store_true", help="Show execution time")
 
     args = parser.parse_args(with_default_command(list(sys.argv[1:] if argv is None else argv)))
@@ -256,18 +265,19 @@ def handle_edit(args):
         from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS
 
         # Robust path resolution (handles ~ and relative paths)
-        input_path = Path(args.image).expanduser().resolve()
-        if not input_path.exists():
-            raise FileNotFoundError(f"Input image not found: {input_path}")
-        if not input_path.is_file():
-            raise ValueError(f"Input image must be a file: {input_path}")
+        input_paths = [Path(img).expanduser().resolve() for img in args.image]
+        for p in input_paths:
+            if not p.exists():
+                raise FileNotFoundError(f"Input image not found: {p}")
+            if not p.is_file():
+                raise ValueError(f"Input image must be a file: {p}")
 
         # Build output path inside the output directory
         if args.output:
             output_filename = args.output
         else:
-            # Use input filename base + random word suffix if no output is provided
-            base_name = input_path.stem
+            # Use first input filename base + random word suffix if no output is provided
+            base_name = input_paths[0].stem
 
             try:
                 from wonderwords import RandomWord
@@ -282,25 +292,32 @@ def handle_edit(args):
         output_dir = Path(args.output_dir).expanduser().resolve()
         output_path = str(output_dir / output_filename)
 
-        # Use the editor's default if --steps is not provided
-        steps = args.steps if args.steps is not None else EDIT_DEFAULT_STEPS
+        model_name = getattr(args, "model", "flux2-klein")
+        quantize = getattr(args, "quantize", None)
+        seed = getattr(args, "seed", None)
 
-        logger.info("Initializing ImageEditor...")
-        editor = ImageEditor()
+        logger.info(f"Initializing ImageEditor with model '{model_name}'...")
+        editor = ImageEditor(model_name=model_name, quantize=quantize)
  
         # Pre-load model before timer starts
-        logger.info("First run will download the Q4_K_M GGUF model (~13GB). It requires disk space and a stable connection.")
-        logger.info("Loading model weights...")
+        if model_name == "qwen-image-edit":
+            logger.info("First run will download the Q4_K_M GGUF model (~13GB). It requires disk space and a stable connection.")
+            logger.info("Loading model weights...")
+        else:
+            logger.info(f"Loading mflux model '{model_name}' weights...")
         editor._load_pipeline()
 
         logger.info(f"Applying edit: '{args.prompt}'")
         start = time.perf_counter() if args.timer else None
         editor.edit(
-            image_path=args.image,
+            image_paths=args.image,
             prompt=args.prompt,
             output_path=output_path,
-            steps=steps,
+            steps=args.steps,
             guidance_scale=args.guidance,
+            seed=seed,
+            width=args.width,
+            height=args.height,
         )
 
         if start is not None:

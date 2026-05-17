@@ -29,7 +29,7 @@ class ModelManager:
     def get_model(cls, model_name: str, quantize: int | None = None):
         """Return a cached model instance, re-creating only when config changes."""
         model_name = model_name.lower()
-        if model_name not in SUPPORTED_MODELS:
+        if model_name not in SUPPORTED_MODELS and model_name != "flux2-klein-edit":
             raise ValueError(
                 f"Unsupported model '{model_name}'. "
                 f"Choose from: {', '.join(SUPPORTED_MODELS)}"
@@ -62,6 +62,13 @@ class ModelManager:
             from mflux.models.flux2.variants import Flux2Klein
 
             return Flux2Klein(
+                quantize=quantize,
+                model_config=ModelConfig.flux2_klein_9b(),
+            )
+        elif model_name == "flux2-klein-edit":
+            from mflux.models.flux2.variants import Flux2KleinEdit
+
+            return Flux2KleinEdit(
                 quantize=quantize,
                 model_config=ModelConfig.flux2_klein_9b(),
             )
