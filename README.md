@@ -47,7 +47,7 @@ The CLI downloads models (like `unsloth/Qwen-Image-Edit-2511-GGUF` or other weig
    ```
 
 > [!NOTE]
-> The `qwen-image-edit` model downloads a GGUF file (`qwen-image-edit-2511-Q4_K_M.gguf`) of about **13 GB** on its first use. Ensure you have a stable internet connection and sufficient disk space.
+> Running the CLI will download models on first use. For example, the `qwen-image-edit` GGUF model is about **13 GB**, and the `flux2-klein` weights are also several gigabytes. Ensure you have a stable internet connection and sufficient disk space.
 
 ---
 
