@@ -18,8 +18,21 @@ logger = logging.getLogger("fluxgen")
 
 
 GLOBAL_FLAGS = {"-v", "--verbose", "-s", "--silent"}
-COMMANDS = {"generate", "gen", "edit"}
+COMMANDS = {"generate", "gen", "edit", "interactive", "repl"}
 PASSTHROUGH_FLAGS = {"--version", "--help", "-h"}
+
+class ParserExit(Exception):
+    pass
+
+class InteractiveParser(argparse.ArgumentParser):
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, sys.stderr)
+        raise ParserExit()
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: {message}\n")
 
 
 def setup_logging(verbose=False, silent=False):
@@ -80,24 +93,17 @@ def suppress_external_output(enabled):
             yield
 
 
-def main(argv=None):
-    config = load_config()
-
-    # Get version from pyproject.toml
-    try:
-        dist = distribution("fluxgen-cli")
-        version = dist.version
-    except Exception:
-        version = "0.3.0"
-
+def get_parser(config, version, interactive=False):
     verbosity_parent = argparse.ArgumentParser(add_help=False)
     add_verbosity_flags(verbosity_parent)
 
-    parser = argparse.ArgumentParser(
+    parser_cls = InteractiveParser if interactive else argparse.ArgumentParser
+    parser = parser_cls(
         description=f"fluxgen v{version} - AI Image Generation & Editing",
         parents=[verbosity_parent],
     )
-    parser.add_argument("--version", action="version", version=f"fluxgen {version}")
+    if not interactive:
+        parser.add_argument("--version", action="version", version=f"fluxgen {version}")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -186,6 +192,29 @@ def main(argv=None):
     edit_parser.add_argument("--height", "--length", type=int, dest="height", help="Output image height/length (defaults to input image height/length)")
     edit_parser.add_argument("--timer", action="store_true", help="Show execution time")
 
+    # ── INTERACTIVE COMMAND ───────────────────────────────────────────────────
+    subparsers.add_parser(
+        "interactive",
+        aliases=["repl"],
+        help="Start an interactive session to keep models loaded in memory",
+        parents=[verbosity_parent],
+    )
+
+    return parser
+
+
+def main(argv=None):
+    config = load_config()
+
+    # Get version from pyproject.toml
+    try:
+        dist = distribution("fluxgen-cli")
+        version = dist.version
+    except Exception:
+        version = "0.3.0"
+
+    parser = get_parser(config, version)
+
     args = parser.parse_args(with_default_command(list(sys.argv[1:] if argv is None else argv)))
 
     if getattr(args, "verbose", False) and getattr(args, "silent", False):
@@ -200,10 +229,74 @@ def main(argv=None):
             handle_generate(args, config)
         elif args.command == "edit":
             handle_edit(args)
+        elif args.command in ["interactive", "repl"]:
+            handle_interactive(config, version)
         else:
             parser.print_help()
 
-def handle_generate(args, config):
+def handle_interactive(config, version):
+    import shlex
+    try:
+        import readline
+    except ImportError:
+        pass
+
+    print(r"""
+  __ _                               
+ / _| |                              
+| |_| |_   ___  ____ _  ___ _ __     
+|  _| | | | \ \/ / _` |/ _ \ '_ \    
+| | | | |_| |>  < (_| |  __/ | | |   
+|_| |_|\__,_/_/\_\__, |\___|_| |_|   
+                  __/ |              
+                 |___/               
+""")
+    logger.info("Starting fluxgen interactive mode. Type 'exit', 'quit' or 'help' to navigate.")
+    parser = get_parser(config, version, interactive=True)
+    
+    while True:
+        try:
+            cmd = input("\nfluxgen> ").strip()
+            if not cmd:
+                continue
+            if cmd.lower() in ["exit", "quit"]:
+                break
+                
+            argv = shlex.split(cmd)
+            if not argv:
+                continue
+                
+            if argv[0] in ["help", "-h", "--help"]:
+                parser.print_help()
+                continue
+                
+            if argv[0] not in COMMANDS:
+                continue
+                
+            try:
+                args = parser.parse_args(argv)
+            except ParserExit:
+                continue
+                
+            silent = getattr(args, "silent", False)
+            setup_logging(verbose=getattr(args, "verbose", False), silent=silent)
+            
+            with suppress_external_output(silent):
+                if args.command in ["generate", "gen"]:
+                    handle_generate(args, config, interactive=True)
+                elif args.command == "edit":
+                    handle_edit(args, interactive=True)
+                elif args.command in ["interactive", "repl"]:
+                    logger.error("Already in interactive mode.")
+                else:
+                    parser.print_help()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            break
+        except Exception as e:
+            logger.error(f"Error: {e}")
+
+def handle_generate(args, config, interactive=False):
     # Determine preset index
     named_indices = {"fast": 0, "standard": 3, "quality": 8}
     preset_idx = args.preset_idx
@@ -252,15 +345,17 @@ def handle_generate(args, config):
         if getattr(args, "verbose", False):
             import traceback
             traceback.print_exc()
-        sys.exit(1)
+        if not interactive:
+            sys.exit(1)
     except Exception as e:
         logger.error(f"Error: {e}")
         if getattr(args, "verbose", False):
             import traceback
             traceback.print_exc()
-        sys.exit(1)
+        if not interactive:
+            sys.exit(1)
 
-def handle_edit(args):
+def handle_edit(args, interactive=False):
     try:
         from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS
 
@@ -329,13 +424,15 @@ def handle_edit(args):
         if getattr(args, "verbose", False):
             import traceback
             traceback.print_exc()
-        sys.exit(1)
+        if not interactive:
+            sys.exit(1)
     except Exception as e:
         logger.error(f"Error: {e}")
         if getattr(args, "verbose", False):
             import traceback
             traceback.print_exc()
-        sys.exit(1)
+        if not interactive:
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
