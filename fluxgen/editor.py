@@ -21,6 +21,8 @@ BASE_MODEL_CONFIG = "Qwen/Qwen-Image-Edit-2511"
 class ImageEditor:
     """Handles image editing using Qwen-Image-Edit-2511-GGUF or Flux2-Klein-Edit."""
 
+    _cached_qwen_pipe = None
+
     def __init__(self, model_name: str = "flux2-klein", quantize: int | None = None):
         self.model_name = model_name.lower()
         self.quantize = quantize
@@ -43,6 +45,9 @@ class ImageEditor:
     def _load_pipeline(self):
         if self.model_name == "qwen-image-edit":
             if self.pipe is not None:
+                return
+            if ImageEditor._cached_qwen_pipe is not None:
+                self.pipe = ImageEditor._cached_qwen_pipe
                 return
 
             from diffusers import (
@@ -77,6 +82,7 @@ class ImageEditor:
             else:
                 self.pipe.enable_model_cpu_offload(device=self.device)
             self.pipe.set_progress_bar_config(disable=logger.getEffectiveLevel() > logging.INFO)
+            ImageEditor._cached_qwen_pipe = self.pipe
         else:
             if self.mflux_model is not None:
                 return
