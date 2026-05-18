@@ -1,6 +1,6 @@
 # fluxgen-cli
 
-A premium, high-performance CLI and Interactive REPL for local AI image generation and instruction-based image editing.
+A CLI and Interactive REPL for local AI image generation and instruction-based image editing on macOS using mflux.
 
 - **Generate images** using state-of-the-art `mflux` backends: `zimage-turbo`, `zimage`, `flux2-klein4b`, and `flux2-klein9b`.
 - **Edit images** via natural language instructions using either `flux2-klein` (multi-image support!) or `qwen-image-edit` (GGUF weights).
@@ -55,18 +55,13 @@ The CLI downloads models (like `unsloth/Qwen-Image-Edit-2511-GGUF` or other weig
 
 If no subcommand is provided, `fluxgen` defaults to treating the first argument as a generation prompt.
 
-### 1. Image Generation (Text-to-Image / Image-to-Image)
+### 1. Image Generation
 
 ```bash
 fluxgen "A beautiful cinematic mountain landscape"
 fluxgen gen "A bustling cyberpunk city scene" --preset standard
 fluxgen gen "A fantasy world" --style cinematic
 fluxgen gen "A playful puppy" --model zimage --timer
-```
-
-For **image-to-image** reference generation, supply an initial image:
-```bash
-fluxgen gen "turn this into a watercolor poster" --init-image input.png --strength 0.45
 ```
 
 ### 2. Instruction-Based Image Editing
