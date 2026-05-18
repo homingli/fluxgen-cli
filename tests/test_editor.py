@@ -3,6 +3,15 @@ import torch
 from unittest.mock import ANY, MagicMock, patch
 from pathlib import Path
 from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS, EDIT_DEFAULT_GUIDANCE, EDIT_DEFAULT_TRUE_CFG
+@pytest.fixture(autouse=True)
+def reset_editor_cache():
+    ImageEditor._cached_qwen_pipe = None
+    from fluxgen.generator import ModelManager
+    ModelManager.reset()
+    yield
+    ImageEditor._cached_qwen_pipe = None
+    ModelManager.reset()
+
 
 
 def test_editor_device_selection():
@@ -23,7 +32,7 @@ def test_editor_device_selection():
 
 def test_editor_defaults():
     """Verify the module-level defaults are sane."""
-    assert EDIT_DEFAULT_STEPS == 40
+    assert EDIT_DEFAULT_STEPS == 10
     assert EDIT_DEFAULT_GUIDANCE == 1.0
     assert EDIT_DEFAULT_TRUE_CFG == 4.0
 
@@ -70,15 +79,17 @@ def test_editor_edit_flow(mock_image_open, mock_gguf_config, mock_transformer_cl
     mock_pipeline.return_value.images = [mock_output_image]
 
     mock_input_image = MagicMock()
+    mock_input_image.size = (512, 512)
+    mock_image_open.return_value.__enter__.return_value = mock_input_image
     mock_image_open.return_value.convert.return_value = mock_input_image
 
     # Initialize editor and force CPU
-    editor = ImageEditor()
+    editor = ImageEditor(model_name="qwen-image-edit")
     editor.device = "cpu"
 
     # Run edit with explicit steps
     editor.edit(
-        image_path=str(input_image),
+        image_paths=[str(input_image)],
         prompt="make it red",
         output_path="output/edited.png",
         steps=10,
@@ -103,10 +114,12 @@ def test_editor_rejects_blank_black_output(mock_image_open, tmp_path):
     input_image = tmp_path / "dummy.png"
     input_image.write_bytes(b"fake")
 
-    editor = ImageEditor()
+    editor = ImageEditor(model_name="qwen-image-edit")
     editor.pipe = MagicMock()
 
     mock_input_image = MagicMock()
+    mock_input_image.size = (512, 512)
+    mock_image_open.return_value.__enter__.return_value = mock_input_image
     mock_image_open.return_value.convert.return_value = mock_input_image
 
     mock_output_image = MagicMock()
@@ -115,7 +128,7 @@ def test_editor_rejects_blank_black_output(mock_image_open, tmp_path):
 
     with pytest.raises(RuntimeError, match="invalid/blank output"):
         editor.edit(
-            image_path=str(input_image),
+            image_paths=[str(input_image)],
             prompt="test",
             output_path="output/out.png",
         )
@@ -140,14 +153,17 @@ def test_editor_uses_default_steps(mock_image_open, mock_gguf_config, mock_trans
     mock_output_image = MagicMock()
     mock_output_image.convert.return_value.getextrema.return_value = ((0, 255), (0, 255), (0, 255))
     mock_pipeline.return_value.images = [mock_output_image]
-    mock_image_open.return_value.convert.return_value = MagicMock()
+    mock_input_image = MagicMock()
+    mock_input_image.size = (512, 512)
+    mock_image_open.return_value.__enter__.return_value = mock_input_image
+    mock_image_open.return_value.convert.return_value = mock_input_image
 
-    editor = ImageEditor()
+    editor = ImageEditor(model_name="qwen-image-edit")
     editor.device = "cpu"
 
     # Call without specifying steps — should use EDIT_DEFAULT_STEPS
     editor.edit(
-        image_path=str(input_image),
+        image_paths=[str(input_image)],
         prompt="test",
         output_path="output/out.png",
     )
@@ -157,13 +173,13 @@ def test_editor_uses_default_steps(mock_image_open, mock_gguf_config, mock_trans
 
 
 def test_editor_missing_input_fails_before_pipeline_load(tmp_path):
-    editor = ImageEditor()
+    editor = ImageEditor(model_name="qwen-image-edit")
     editor._load_pipeline = MagicMock()
     missing_image = tmp_path / "missing.png"
 
     with pytest.raises(FileNotFoundError, match="Input image not found"):
         editor.edit(
-            image_path=str(missing_image),
+            image_paths=[str(missing_image)],
             prompt="test",
             output_path="output/out.png",
         )

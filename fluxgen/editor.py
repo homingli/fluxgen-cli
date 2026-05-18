@@ -44,56 +44,62 @@ class ImageEditor:
 
     def _load_pipeline(self):
         if self.model_name == "qwen-image-edit":
-            if self.pipe is not None:
-                return
-            if ImageEditor._cached_qwen_pipe is not None:
-                self.pipe = ImageEditor._cached_qwen_pipe
-                return
-
-            from diffusers import (
-                QwenImageEditPlusPipeline,
-                QwenImageTransformer2DModel,
-                GGUFQuantizationConfig,
-            )
-
-            compute_dtype = self._get_compute_dtype()
-
-            logger.debug(f"Downloading/loading GGUF weights: {GGUF_REPO}/{GGUF_FILENAME}...")
-            ckpt_path = hf_hub_download(repo_id=GGUF_REPO, filename=GGUF_FILENAME)
-
-            logger.debug(f"Loading GGUF transformer from {ckpt_path}...")
-            transformer = QwenImageTransformer2DModel.from_single_file(
-                ckpt_path,
-                quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
-                config=BASE_MODEL_CONFIG,
-                subfolder="transformer",
-                torch_dtype=compute_dtype,
-            )
-
-            logger.info(f"Loading pipeline components ({BASE_MODEL_CONFIG}) on {self.device}...")
-            self.pipe = QwenImageEditPlusPipeline.from_pretrained(
-                BASE_MODEL_CONFIG,
-                transformer=transformer,
-                torch_dtype=compute_dtype,
-            )
-            logger.debug("Pipeline loaded successfully.")
-            if self.device == "cpu":
-                self.pipe.to("cpu")
-            else:
-                self.pipe.enable_model_cpu_offload(device=self.device)
-            self.pipe.set_progress_bar_config(disable=logger.getEffectiveLevel() > logging.INFO)
-            ImageEditor._cached_qwen_pipe = self.pipe
+            self._load_qwen_pipeline()
         else:
-            if self.mflux_model is not None:
-                return
+            self._load_mflux_pipeline()
 
-            logger.info(f"Loading mflux model 'flux2-klein-edit' on MLX...")
-            from fluxgen.generator import ModelManager
-            self.mflux_model = ModelManager.get_model(
-                model_name="flux2-klein-edit",
-                quantize=self.quantize,
-            )
-            logger.debug("MFLUX model loaded successfully.")
+    def _load_qwen_pipeline(self):
+        if self.pipe is not None:
+            return
+        if ImageEditor._cached_qwen_pipe is not None:
+            self.pipe = ImageEditor._cached_qwen_pipe
+            return
+
+        from diffusers import (
+            QwenImageEditPlusPipeline,
+            QwenImageTransformer2DModel,
+            GGUFQuantizationConfig,
+        )
+
+        compute_dtype = self._get_compute_dtype()
+
+        logger.debug(f"Downloading/loading GGUF weights: {GGUF_REPO}/{GGUF_FILENAME}...")
+        ckpt_path = hf_hub_download(repo_id=GGUF_REPO, filename=GGUF_FILENAME)
+
+        logger.debug(f"Loading GGUF transformer from {ckpt_path}...")
+        transformer = QwenImageTransformer2DModel.from_single_file(
+            ckpt_path,
+            quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
+            config=BASE_MODEL_CONFIG,
+            subfolder="transformer",
+            torch_dtype=compute_dtype,
+        )
+
+        logger.info(f"Loading pipeline components ({BASE_MODEL_CONFIG}) on {self.device}...")
+        self.pipe = QwenImageEditPlusPipeline.from_pretrained(
+            BASE_MODEL_CONFIG,
+            transformer=transformer,
+            torch_dtype=compute_dtype,
+        )
+        logger.debug("Pipeline loaded successfully.")
+        if self.device == "cpu":
+            self.pipe.to("cpu")
+        else:
+            self.pipe.enable_model_cpu_offload(device=self.device)
+        self.pipe.set_progress_bar_config(disable=logger.getEffectiveLevel() > logging.INFO)
+        ImageEditor._cached_qwen_pipe = self.pipe
+
+    def _load_mflux_pipeline(self):
+        if self.mflux_model is not None:
+            return
+
+        logger.info(f"Loading mflux model 'flux2-klein-edit' on MLX...")
+        from fluxgen.generator import ModelManager
+        self.mflux_model = ModelManager.get_model(
+            model_name="flux2-klein-edit",
+            quantize=self.quantize,
+        )
+        logger.debug("MFLUX model loaded successfully.")
 
     def edit(
         self,
@@ -108,6 +114,9 @@ class ImageEditor:
         height: int | None = None,
     ) -> None:
         """Perform instruction-based image editing."""
+        from fluxgen.exceptions import InvalidImageError
+        from PIL import UnidentifiedImageError
+
         resolved_paths = []
         for path in image_paths:
             input_path = Path(path).expanduser().resolve()
@@ -115,13 +124,23 @@ class ImageEditor:
                 raise FileNotFoundError(f"Input image not found: {input_path}")
             if not input_path.is_file():
                 raise ValueError(f"Input image must be a file: {input_path}")
+            
+            try:
+                with Image.open(input_path) as img:
+                    img.verify()
+            except UnidentifiedImageError:
+                raise InvalidImageError(f"Invalid or corrupted image file: {input_path}")
+            except Exception as e:
+                raise InvalidImageError(f"Could not verify image file {input_path}: {e}")
+
             resolved_paths.append(input_path)
 
         # Detect input image dimensions from the first provided image
         try:
+            from PIL import UnidentifiedImageError
             with Image.open(resolved_paths[0]) as img:
                 img_w, img_h = img.size
-        except Exception as e:
+        except (OSError, UnidentifiedImageError) as e:
             logger.warning(f"Could not read dimensions of input image: {e}. Defaulting to 1024x1024.")
             img_w, img_h = 1024, 1024
 

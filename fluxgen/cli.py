@@ -296,26 +296,68 @@ def handle_interactive(config, version):
         except Exception as e:
             logger.error(f"Error: {e}")
 
-def handle_generate(args, config, interactive=False):
-    # Determine preset index
-    named_indices = {"fast": 0, "standard": 3, "quality": 8}
-    preset_idx = args.preset_idx
-    if args.preset:
-        preset_idx = named_indices[args.preset]
+from contextlib import contextmanager
+from fluxgen.exceptions import FluxgenError, PathTraversalError
 
-    if preset_idx is None:
-        preset_idx = get_config_value(config, "preset", 0)
-
-    preset = PRESETS[preset_idx].copy()
-    if args.steps:
-        preset["steps"] = args.steps
-    if args.quantize:
-        preset["quantize"] = args.quantize
-
-    output_path = args.output if args.output else generate_random_filename()
-    output_path = str(Path(args.output_dir) / output_path)
-
+@contextmanager
+def error_handler(args, interactive=False):
     try:
+        yield
+    except (FileNotFoundError, ValueError, FluxgenError) as e:
+        logger.error(f"Error: {e}")
+        if getattr(args, "verbose", False):
+            import traceback
+            traceback.print_exc()
+        if not interactive:
+            sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        if getattr(args, "verbose", False):
+            import traceback
+            traceback.print_exc()
+        if not interactive:
+            sys.exit(1)
+
+def resolve_output_path(output_arg, output_dir_arg, default_filename_func=None):
+    output_dir = Path(output_dir_arg).expanduser().resolve()
+    
+    if output_arg:
+        output_path = Path(output_arg)
+        if output_path.is_absolute():
+            final_path = output_path.resolve()
+        else:
+            final_path = (output_dir / output_path).resolve()
+            if not str(final_path).startswith(str(output_dir)):
+                raise PathTraversalError(f"Output path {final_path} is outside the allowed directory {output_dir}")
+    else:
+        if default_filename_func:
+            output_filename = default_filename_func()
+        else:
+            from fluxgen.generator import generate_random_filename
+            output_filename = generate_random_filename()
+        final_path = (output_dir / output_filename).resolve()
+        
+    return str(final_path)
+
+def handle_generate(args, config, interactive=False):
+    with error_handler(args, interactive):
+        # Determine preset index
+        named_indices = {"fast": 0, "standard": 3, "quality": 8}
+        preset_idx = args.preset_idx
+        if args.preset:
+            preset_idx = named_indices[args.preset]
+
+        if preset_idx is None:
+            preset_idx = get_config_value(config, "preset", 0)
+
+        preset = PRESETS[preset_idx].copy()
+        if args.steps:
+            preset["steps"] = args.steps
+        if args.quantize:
+            preset["quantize"] = args.quantize
+
+        output_path = resolve_output_path(args.output, args.output_dir)
+
         # Pre-load model before timer starts
         from fluxgen.generator import ModelManager
         ModelManager.get_model(
@@ -340,23 +382,9 @@ def handle_generate(args, config, interactive=False):
         if start is not None:
             elapsed = time.perf_counter() - start
             logger.info(f"\u23a1 Generated in {elapsed:.2f}s")
-    except FileNotFoundError as e:
-        logger.error(f"Error: {e}")
-        if getattr(args, "verbose", False):
-            import traceback
-            traceback.print_exc()
-        if not interactive:
-            sys.exit(1)
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        if getattr(args, "verbose", False):
-            import traceback
-            traceback.print_exc()
-        if not interactive:
-            sys.exit(1)
 
 def handle_edit(args, interactive=False):
-    try:
+    with error_handler(args, interactive):
         from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS
 
         # Robust path resolution (handles ~ and relative paths)
@@ -367,25 +395,18 @@ def handle_edit(args, interactive=False):
             if not p.is_file():
                 raise ValueError(f"Input image must be a file: {p}")
 
-        # Build output path inside the output directory
-        if args.output:
-            output_filename = args.output
-        else:
-            # Use first input filename base + random word suffix if no output is provided
+        def generate_edit_filename():
             base_name = input_paths[0].stem
-
             try:
                 from wonderwords import RandomWord
                 rw = RandomWord()
-                # Get one random word, max length 5
                 random_word = rw.random_words(1, word_max_length=5)[0]
-                # Construct the new filename: base_name_(random-word).png
-                output_filename = f"{base_name}_{random_word}.png"
-            except Exception:
-                # Fallback to old random naming if wonderwords fails
-                output_filename = generate_random_filename()
-        output_dir = Path(args.output_dir).expanduser().resolve()
-        output_path = str(output_dir / output_filename)
+                return f"{base_name}_{random_word}.png"
+            except ImportError:
+                from fluxgen.generator import generate_random_filename
+                return generate_random_filename()
+
+        output_path = resolve_output_path(args.output, args.output_dir, generate_edit_filename)
 
         model_name = getattr(args, "model", "flux2-klein")
         quantize = getattr(args, "quantize", None)
@@ -418,21 +439,6 @@ def handle_edit(args, interactive=False):
         if start is not None:
             elapsed = time.perf_counter() - start
             logger.info(f"\u23a1 Edited in {elapsed:.2f}s")
-
-    except FileNotFoundError as e:
-        logger.error(f"Error: {e}")
-        if getattr(args, "verbose", False):
-            import traceback
-            traceback.print_exc()
-        if not interactive:
-            sys.exit(1)
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        if getattr(args, "verbose", False):
-            import traceback
-            traceback.print_exc()
-        if not interactive:
-            sys.exit(1)
 
 if __name__ == "__main__":
     main()
