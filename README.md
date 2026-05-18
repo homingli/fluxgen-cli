@@ -1,110 +1,155 @@
 # fluxgen-cli
 
-CLI for local AI image generation and instruction-based image editing.
+A CLI and Interactive REPL for local AI image generation and instruction-based image editing on macOS using mflux.
 
-- Generate images with `mflux` backends: `zimage-turbo`, `zimage`, `flux2-klein4b`, and `flux2-klein9b`.
-- Edit existing images with Qwen-Image-Edit 2511 through Diffusers and GGUF weights.
-- Keep local defaults in `.fluxgen.toml`.
+- **Generate images** using state-of-the-art `mflux` backends: `zimage-turbo`, `zimage`, `flux2-klein4b`, and `flux2-klein9b`.
+- **Edit images** via natural language instructions using either `flux2-klein` (multi-image support!) or `qwen-image-edit` (GGUF weights).
+- **Interactive REPL Mode** to keep models cached persistently in memory for near-instant successive runs.
+- **Robust Path Security & Validation** protecting against directory traversal and corrupted image inputs.
+- **Local Defaults** customizable in a simple `.fluxgen.toml` configuration.
+
+---
 
 ## Installation
 
-Install with `uv`:
+Install globally using `uv`:
 
 ```bash
 uv tool install .
 ```
 
-For development:
+For local development and testing:
 
 ```bash
 uv sync --dev
 uv run fluxgen --help
 ```
 
-## Requirements
+---
+
+## Requirements & Authentication
 
 - Python 3.10+
-- Hugging Face access for model downloads:
+- **Apple Silicon Mac** with 32 GB+ unified memory is highly recommended (especially for GGUF weights and MLX generation).
+- **Hugging Face Hub Access** for model downloads.
 
-```bash
-export HF_TOKEN="your_huggingface_token"
-```
+### Hugging Face Authentication
+The CLI downloads models (like `unsloth/Qwen-Image-Edit-2511-GGUF` or other weights) directly from the Hugging Face Hub. To authenticate:
 
-Editing downloads `unsloth/Qwen-Image-Edit-2511-GGUF` on first use. The Q4_K_M GGUF file is about 13 GB, and the full edit stack still needs substantial RAM or unified memory. Apple Silicon with 32 GB+ unified memory is recommended.
+1. Obtain a User Access Token from your [Hugging Face Security Tokens Settings](https://huggingface.co/docs/hub/en/security-tokens).
+2. Log in using the Hugging Face CLI (automatically installed with dependencies):
+   ```bash
+   huggingface-cli login
+   ```
+3. Alternatively, export your token as an environment variable in your terminal session:
+   ```bash
+   export HF_TOKEN="your_huggingface_token"
+   ```
+
+> [!NOTE]
+> Running the CLI will download models on first use. For example, the `qwen-image-edit` GGUF model is about **13 GB**, and the `flux2-klein` weights are also several gigabytes. Ensure you have a stable internet connection and sufficient disk space.
+
+---
 
 ## Usage
 
-Generate:
+If no subcommand is provided, `fluxgen` defaults to treating the first argument as a generation prompt.
+
+### 1. Image Generation
 
 ```bash
-fluxgen "A beautiful landscape"
-fluxgen gen "A city scene" --preset standard
+fluxgen "A beautiful cinematic mountain landscape"
+fluxgen gen "A bustling cyberpunk city scene" --preset standard
 fluxgen gen "A fantasy world" --style cinematic
-fluxgen gen "A cat" --model zimage
-fluxgen gen "A dog" --timer
+fluxgen gen "A playful puppy" --model zimage --timer
 ```
 
-Image-to-image:
+### 2. Instruction-Based Image Editing
+
+The `edit` command supports two powerful editing models:
+
+*   **`flux2-klein`** (default): Ultra-fast local editing optimized for MLX. **Supports editing multiple input images at once!**
+    ```bash
+    # Single image edit
+    fluxgen edit photo.jpg "add a red hat to the cat"
+    
+    # Multi-image batch edit
+    fluxgen edit shot1.png shot2.png shot3.png "make it sunset synthwave style" --model flux2-klein
+    ```
+*   **`qwen-image-edit`**: High-fidelity instruction editing utilizing GGUF weights via `diffusers`. Currently supports a **single input image**.
+    ```bash
+    fluxgen edit portrait.png "turn into an oil painting" --model qwen-image-edit --timer
+    ```
+
+### 3. Interactive REPL Mode
+
+To completely eliminate the model loading overhead between consecutive generations or edits, start a persistent interactive shell:
 
 ```bash
-fluxgen gen "turn this into a watercolor poster" --init-image input.png --strength 0.45
+fluxgen interactive
+# Or:
+fluxgen repl
 ```
 
-Edit:
-
-```bash
-fluxgen edit input.png "make it sunset"
-fluxgen edit photo.jpg "add a red hat to the cat"
-fluxgen edit portrait.png "turn into an oil painting"
-fluxgen edit scene.png "remove the tree" --timer
+Inside the REPL, models remain warmed up in memory:
+```text
+fluxgen> gen "A mystical forest" --style cinematic
+fluxgen> edit output/generated-file.png "add a castle in the background" --model flux2-klein
+fluxgen> help
 ```
 
-If no command is provided, `fluxgen` treats the first argument as a generation prompt.
+---
 
-## Commands
+## Command Reference
 
 | Command | Usage | Description |
 |---|---|---|
 | `generate`, `gen` | `fluxgen gen "prompt"` | Generate an image from text or a reference image |
-| `edit` | `fluxgen edit image.png "instruction"` | Edit an existing image with Qwen-Image-Edit |
+| `edit` | `fluxgen edit input.png "instruction"` | Edit existing image(s) using natural language instructions |
+| `interactive`, `repl` | `fluxgen interactive` | Start an interactive REPL session (keeps models in memory) |
 
-## Global Options
+---
 
-- `-s`, `--silent`: suppress non-error output
-- `-v`, `--verbose`: show debug output
+## CLI Options
 
-## Generation Options
+### Global Options
+- `-s`, `--silent`: Suppress non-error console output.
+- `-v`, `--verbose`: Show debug output and full error tracebacks.
 
-- `--model [zimage-turbo|zimage|flux2-klein4b|flux2-klein9b]`: model backend, default `zimage-turbo`
-- `-0`, `--fast`: fast preset, default
-- `-3`, `--standard`: standard preset
-- `-8`, `--quality`: quality preset
-- `--preset [fast|standard|quality]`: named preset override
-- `--style NAME`: built-in or configured style, default `none`
-- `--no-style`: disable prompt styling
-- `--steps INT`: override inference steps
-- `--quantize INT`: override mflux quantization
-- `--width INT`, `--height INT`: image size, default `1024x1024`
-- `--output FILE`: output filename
-- `--output-dir DIR`: output directory, default `output`
-- `--seed INT`: deterministic seed
-- `--init-image FILE`: reference image for image-to-image
-- `--strength FLOAT`: image-to-image strength, default `0.4`
-- `--timer`: print elapsed time
+### Generation Options (`generate`, `gen`)
+- `--model [zimage-turbo|zimage|flux2-klein4b|flux2-klein9b]`: Model backend to use (default: `zimage-turbo`).
+- `-0`, `--fast`: Fast preset (fewer steps).
+- `-3`, `--standard`: Standard preset.
+- `-8`, `--quality`: Quality preset (higher steps).
+- `--preset [fast|standard|quality]`: Named preset override.
+- `--style NAME`: Built-in or configured prompt style (default: `none`).
+- `--no-style`: Disable styling completely.
+- `--steps INT`: Override preset inference steps.
+- `--quantize INT`: Override mflux model quantization.
+- `--width INT`, `--height INT`: Output dimensions (default: `1024x1024`).
+- `--output FILE`: Output filename (auto-generated if not specified).
+- `--output-dir DIR`: Output directory (default: `output`).
+- `--seed INT`: Deterministic random seed.
+- `--init-image FILE`: Reference image for image-to-image generation.
+- `--strength FLOAT`: Reference image strength (default: `0.4`).
+- `--timer`: Print elapsed generation time.
 
-## Editing Options
+### Editing Options (`edit`)
+- `--model [flux2-klein|qwen-image-edit]`: Editing model to use (default: `flux2-klein`).
+- `--output FILE`: Output filename (default: first input image name appended with a random word).
+- `--output-dir DIR`: Output directory (default: `output`).
+- `--steps INT`: Inference steps override.
+- `--guidance FLOAT`: Guidance scale override.
+- `--quantize INT`: Override MLX quantization for `flux2-klein`.
+- `--width INT`, `--height INT`: Force specific output dimensions (re-scales while preserving aspect ratio, max 1920px).
+- `--seed INT`: Deterministic random seed.
+- `--timer`: Print elapsed editing time.
 
-- `--output FILE`: output filename, default random three-word PNG
-- `--output-dir DIR`: output directory, default `output`
-- `--steps INT`: inference steps, default `40`
-- `--guidance FLOAT`: guidance scale, default `1.0`
-- `--timer`: print elapsed time
-
-The editor uses `bfloat16` on CUDA and MPS, and `float32` on CPU. If Diffusers produces invalid values or a blank black output, the CLI raises an error instead of saving a bad image.
+---
 
 ## Configuration
 
-Create `.fluxgen.toml` in the current directory or home directory.
+Create a `.fluxgen.toml` configuration in your user home directory (`~/`) or the current project directory:
 
 ```toml
 [defaults]
@@ -119,7 +164,9 @@ style = "none"
 retro = " in retro 80s style, synthwave colors"
 ```
 
-Local config overrides home config for matching keys.
+A local configuration in the current directory will automatically take precedence over the home directory configuration.
+
+---
 
 ## Project Docs
 
