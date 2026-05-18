@@ -1,5 +1,6 @@
 import importlib
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
@@ -22,17 +23,21 @@ def test_edit_default_output_uses_random_filename(tmp_path):
     input_image = tmp_path / "input.png"
     input_image.write_bytes(b"fake")
     args = SimpleNamespace(
-        image=str(input_image),
+        image=[str(input_image)],
         prompt="make it sunset",
         output=None,
         output_dir="output",
         steps=None,
         guidance=1.0,
         timer=False,
+        width=None,
+        height=None,
     )
 
     with patch("wonderwords.RandomWord") as mock_random_word_cls, \
-         patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
+         patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
+         patch("PIL.Image.open") as mock_image_open:
+        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
         mock_random_word_cls.return_value.random_words.side_effect = [["red"], ["blue"]]
         editor = mock_editor_cls.return_value
 
@@ -43,20 +48,26 @@ def test_edit_default_output_uses_random_filename(tmp_path):
         call.kwargs["output_path"]
         for call in editor.edit.call_args_list
     ]
-    assert output_paths == ["output/input_red.png", "output/input_blue.png"]
+    expected = [
+        str(Path("output/input_red.png").resolve()),
+        str(Path("output/input_blue.png").resolve())
+    ]
+    assert output_paths == expected
 
 
 def test_edit_missing_input_exits_before_editor_load(tmp_path):
     cli = load_cli_without_mflux()
     missing_image = tmp_path / "missing.png"
     args = SimpleNamespace(
-        image=str(missing_image),
+        image=[str(missing_image)],
         prompt="make it sunset",
         output=None,
         output_dir="output",
         steps=None,
         guidance=1.0,
         timer=False,
+        width=None,
+        height=None,
     )
 
     with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \

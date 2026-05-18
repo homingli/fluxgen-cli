@@ -118,7 +118,8 @@ def generate_random_filename() -> str:
         rw = RandomWord()
         words = rw.random_words(3, word_max_length=5)
         return "-".join(words) + ".png"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"wonderwords failed, falling back to timestamp: {e}")
         import time
         return f"generated-{int(time.time())}.png"
 
@@ -147,11 +148,22 @@ def generate_image(
         raise ValueError(f"strength must be between 0.0 and 1.0, got {strength}")
 
     if init_image is not None:
+        from fluxgen.exceptions import InvalidImageError
+        from PIL import UnidentifiedImageError
+
         init_path = Path(init_image).expanduser().resolve()
         if not init_path.exists():
             raise FileNotFoundError(f"Reference image not found: {init_path}")
         if not init_path.is_file():
             raise ValueError(f"Reference image must be a file: {init_path}")
+            
+        try:
+            with Image.open(init_path) as img:
+                img.verify()
+        except UnidentifiedImageError:
+            raise InvalidImageError(f"Invalid or corrupted image file: {init_path}")
+        except Exception as e:
+            raise InvalidImageError(f"Could not verify image file {init_path}: {e}")
 
     # Resolve model-specific defaults
     defaults = MODEL_DEFAULTS.get(model_name.lower(), MODEL_DEFAULTS[DEFAULT_MODEL])
