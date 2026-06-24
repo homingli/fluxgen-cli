@@ -1,5 +1,6 @@
 import logging
 import random
+import threading
 from pathlib import Path
 from PIL import Image
 
@@ -24,6 +25,7 @@ class ModelManager:
 
     _instance = None
     _current_config = None
+    _lock = threading.Lock()
 
     @classmethod
     def get_model(cls, model_name: str, quantize: int | None = None):
@@ -36,9 +38,10 @@ class ModelManager:
             )
 
         config_key = (model_name, quantize)
-        if cls._instance is None or cls._current_config != config_key:
-            cls._instance = cls._create_model(model_name, quantize)
-            cls._current_config = config_key
+        with cls._lock:
+            if cls._instance is None or cls._current_config != config_key:
+                cls._instance = cls._create_model(model_name, quantize)
+                cls._current_config = config_key
         return cls._instance
 
     @classmethod
@@ -83,8 +86,9 @@ class ModelManager:
     @classmethod
     def reset(cls):
         """Clear the cached model (useful for switching models)."""
-        cls._instance = None
-        cls._current_config = None
+        with cls._lock:
+            cls._instance = None
+            cls._current_config = None
 
 
 # ── Model-specific default parameters ────────────────────────────────────────
