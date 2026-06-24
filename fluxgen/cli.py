@@ -12,6 +12,7 @@ except ImportError:
 
 from fluxgen.generator import generate_image, generate_random_filename, SUPPORTED_MODELS, DEFAULT_MODEL
 from fluxgen.presets import PRESETS
+from dataclasses import asdict
 from fluxgen.config import load_config, get_config_value
 
 logger = logging.getLogger("fluxgen")
@@ -210,7 +211,7 @@ def main(argv=None):
     try:
         dist = distribution("fluxgen-cli")
         version = dist.version
-    except Exception:
+    except (ImportError, FileNotFoundError):
         version = "0.3.0"
 
     parser = get_parser(config, version)
@@ -327,7 +328,7 @@ def resolve_output_path(output_arg, output_dir_arg, default_filename_func=None):
             final_path = output_path.resolve()
         else:
             final_path = (output_dir / output_path).resolve()
-            if not str(final_path).startswith(str(output_dir)):
+            if not final_path.is_relative_to(output_dir):
                 raise PathTraversalError(f"Output path {final_path} is outside the allowed directory {output_dir}")
     else:
         if default_filename_func:
@@ -350,7 +351,7 @@ def handle_generate(args, config, interactive=False):
         if preset_idx is None:
             preset_idx = get_config_value(config, "preset", 0)
 
-        preset = PRESETS[preset_idx].copy()
+        preset = asdict(PRESETS[preset_idx])
         if args.steps:
             preset["steps"] = args.steps
         if args.quantize:

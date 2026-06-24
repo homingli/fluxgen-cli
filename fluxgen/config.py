@@ -1,6 +1,9 @@
+import logging
 import tomllib
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("fluxgen")
 
 DEFAULT_CONFIG_FILENAME = ".fluxgen.toml"
 
@@ -28,8 +31,8 @@ def load_config() -> dict[str, Any]:
                         if "styles" not in config:
                             config["styles"] = {}
                         config["styles"].update(data["styles"])
-            except Exception as e:
-                print(f"Warning: Failed to load config from {loc}: {e}")
+            except (tomllib.TOMLDecodeError, OSError) as e:
+                logger.warning(f"Failed to load config from {loc}: {e}")
                 
     return config
 

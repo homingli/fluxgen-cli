@@ -1,4 +1,5 @@
 import logging
+import threading
 import torch
 from PIL import Image
 from pathlib import Path
@@ -22,6 +23,7 @@ class ImageEditor:
     """Handles image editing using Qwen-Image-Edit-2511-GGUF or Flux2-Klein-Edit."""
 
     _cached_qwen_pipe = None
+    _lock = threading.Lock()
 
     def __init__(self, model_name: str = "flux2-klein", quantize: int | None = None):
         self.model_name = model_name.lower()
@@ -51,9 +53,12 @@ class ImageEditor:
     def _load_qwen_pipeline(self):
         if self.pipe is not None:
             return
-        if ImageEditor._cached_qwen_pipe is not None:
-            self.pipe = ImageEditor._cached_qwen_pipe
-            return
+        with ImageEditor._lock:
+            if self.pipe is not None:
+                return
+            if ImageEditor._cached_qwen_pipe is not None:
+                self.pipe = ImageEditor._cached_qwen_pipe
+                return
 
         from diffusers import (
             QwenImageEditPlusPipeline,
