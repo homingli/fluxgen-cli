@@ -212,7 +212,7 @@ def main(argv=None):
         dist = distribution("fluxgen-cli")
         version = dist.version
     except (ImportError, FileNotFoundError):
-        version = "0.3.0"
+        version = "0.3.1"
 
     parser = get_parser(config, version)
 

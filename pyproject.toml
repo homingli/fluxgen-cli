@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fluxgen-cli"
-version = "0.3.0"
+version = "0.3.1"
 description = "A CLI tool for AI image generation and instruction-based editing"
 authors = [{name = "hml"}]
 dependencies = [
