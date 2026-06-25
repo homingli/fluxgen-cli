@@ -6,6 +6,7 @@ from typing import Any, Callable
 from PIL import Image
 
 from mflux.models.common.config import ModelConfig
+from fluxgen.styling import StyleManager
 
 # Supported model identifiers
 SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
