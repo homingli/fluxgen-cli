@@ -6,6 +6,7 @@ from typing import Any, Callable
 from PIL import Image
 
 from mflux.models.common.config import ModelConfig
+from fluxgen.styling import StyleManager
 
 # Supported model identifiers
 SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
@@ -134,6 +135,7 @@ def generate_image(
     init_image: str | None = None,
     strength: float = 0.4,
     model_name: str = DEFAULT_MODEL,
+    model: Any = None,
 ) -> None:
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
@@ -171,11 +173,12 @@ def generate_image(
 
     logger.debug(f"Using model '{model_name}' with {steps} steps, seed={seed}")
 
-    # Use ModelManager for caching
-    model = ModelManager.get_model(
-        model_name=model_name,
-        quantize=preset.get("quantize"),
-    )
+    # Use pre-loaded model or cache lookup
+    if model is None:
+        model = ModelManager.get_model(
+            model_name=model_name,
+            quantize=preset.get("quantize"),
+        )
 
     # Build generate_image kwargs — common across all models
     gen_kwargs = dict(
