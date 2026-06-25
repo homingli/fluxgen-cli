@@ -2,7 +2,7 @@ from typing import Dict, Optional, List
 
 class StyleManager:
     """Manages prompt styling."""
-    DEFAULT_STYLES = {
+    _default_styles = {
         "none": "",
         "ghibli": " in Studio Ghibli style, whimsical animation",
         "cinematic": " cinematic lighting, 8k resolution, highly detailed",
@@ -17,9 +17,7 @@ class StyleManager:
     }
 
     def __init__(self, custom_styles: Optional[Dict[str, str]] = None):
-        self.styles = self.DEFAULT_STYLES.copy()
-        if custom_styles:
-            self.styles.update(custom_styles)
+        self.styles = StyleManager._default_styles if custom_styles is None else dict(StyleManager._default_styles, **custom_styles)
 
     def apply_style(self, prompt: str, style_name: str) -> str:
         if not style_name or style_name.lower() == "none":

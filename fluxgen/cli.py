@@ -361,7 +361,7 @@ def handle_generate(args, config, interactive=False):
 
         # Pre-load model before timer starts
         from fluxgen.generator import ModelManager
-        ModelManager.get_model(
+        preloaded_model = ModelManager.get_model(
             model_name=args.model,
             quantize=preset.get("quantize"),
         )
@@ -379,6 +379,7 @@ def handle_generate(args, config, interactive=False):
             init_image=args.init_image,
             strength=args.strength,
             model_name=args.model,
+            model=preloaded_model,
         )
         if start is not None:
             elapsed = time.perf_counter() - start
