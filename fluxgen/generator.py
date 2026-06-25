@@ -2,9 +2,11 @@ import logging
 import random
 import threading
 from pathlib import Path
+from typing import Any, Callable
 from PIL import Image
 
 from mflux.models.common.config import ModelConfig
+from fluxgen.styling import StyleManager
 
 # Supported model identifiers
 SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
@@ -31,57 +33,19 @@ class ModelManager:
     def get_model(cls, model_name: str, quantize: int | None = None):
         """Return a cached model instance, re-creating only when config changes."""
         model_name = model_name.lower()
-        if model_name not in SUPPORTED_MODELS and model_name != "flux2-klein-edit":
+        if model_name not in _MODEL_DISPATCH:
             raise ValueError(
                 f"Unsupported model '{model_name}'. "
-                f"Choose from: {', '.join(SUPPORTED_MODELS)}"
+                f"Choose from: {', '.join(_MODEL_DISPATCH)}"
             )
 
         config_key = (model_name, quantize)
         with cls._lock:
             if cls._instance is None or cls._current_config != config_key:
-                cls._instance = cls._create_model(model_name, quantize)
+                factory = _MODEL_DISPATCH[model_name]
+                cls._instance = factory(quantize)
                 cls._current_config = config_key
         return cls._instance
-
-    @classmethod
-    def _create_model(cls, model_name: str, quantize: int | None):
-        """Instantiate the appropriate model class."""
-        if model_name == "zimage":
-            from mflux.models.z_image import ZImage
-
-            return ZImage(
-                quantize=quantize,
-                model_config=ModelConfig.z_image(),
-            )
-        elif model_name == "flux2-klein4b":
-            from mflux.models.flux2.variants import Flux2Klein
-
-            return Flux2Klein(
-                quantize=quantize,
-                model_config=ModelConfig.flux2_klein_4b(),
-            )
-        elif model_name == "flux2-klein9b":
-            from mflux.models.flux2.variants import Flux2Klein
-
-            return Flux2Klein(
-                quantize=quantize,
-                model_config=ModelConfig.flux2_klein_9b(),
-            )
-        elif model_name == "flux2-klein-edit":
-            from mflux.models.flux2.variants import Flux2KleinEdit
-
-            return Flux2KleinEdit(
-                quantize=quantize,
-                model_config=ModelConfig.flux2_klein_9b(),
-            )
-        else:  # zimage-turbo (default)
-            from mflux.models.z_image import ZImageTurbo
-
-            return ZImageTurbo(
-                quantize=quantize,
-                model_config=ModelConfig.z_image_turbo(),
-            )
 
     @classmethod
     def reset(cls):
@@ -113,7 +77,40 @@ MODEL_DEFAULTS = {
 }
 
 
-from fluxgen.styling import StyleManager
+def _make_zimage(quantize):
+    from mflux.models.z_image import ZImage
+    return ZImage(quantize=quantize, model_config=ModelConfig.z_image())
+
+
+def _make_zimage_turbo(quantize):
+    from mflux.models.z_image import ZImageTurbo
+    return ZImageTurbo(quantize=quantize, model_config=ModelConfig.z_image_turbo())
+
+
+def _make_flux2_klein4b(quantize):
+    from mflux.models.flux2.variants import Flux2Klein
+    return Flux2Klein(quantize=quantize, model_config=ModelConfig.flux2_klein_4b())
+
+
+def _make_flux2_klein9b(quantize):
+    from mflux.models.flux2.variants import Flux2Klein
+    return Flux2Klein(quantize=quantize, model_config=ModelConfig.flux2_klein_9b())
+
+
+def _make_flux2_klein_edit(quantize):
+    from mflux.models.flux2.variants import Flux2KleinEdit
+    return Flux2KleinEdit(quantize=quantize, model_config=ModelConfig.flux2_klein_9b())
+
+
+# Explicit dispatch table: model_name → (instantiation_fn, supported check)
+_MODEL_DISPATCH: dict[str, Callable[[int | None], Any]] = {
+    "zimage": _make_zimage,
+    "zimage-turbo": _make_zimage_turbo,
+    "flux2-klein4b": _make_flux2_klein4b,
+    "flux2-klein9b": _make_flux2_klein9b,
+    "flux2-klein-edit": _make_flux2_klein_edit,
+}
+
 
 def generate_random_filename() -> str:
     """Generate a random 3-word filename with .png extension"""

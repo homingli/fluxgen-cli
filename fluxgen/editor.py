@@ -1,10 +1,10 @@
 import logging
 import threading
-import torch
 from PIL import Image
 from pathlib import Path
 import warnings
 from huggingface_hub import hf_hub_download
+from typing import TYPE_CHECKING
 
 logger = logging.getLogger("fluxgen")
 
@@ -33,13 +33,15 @@ class ImageEditor:
         self.mflux_model = None
 
     def _get_device(self) -> str:
+        import torch
         if torch.backends.mps.is_available():
             return "mps"
         elif torch.cuda.is_available():
             return "cuda"
         return "cpu"
 
-    def _get_compute_dtype(self) -> torch.dtype:
+    def _get_compute_dtype(self) -> "torch.dtype":
+        import torch
         if self.device in {"cuda", "mps"}:
             return torch.bfloat16
         return torch.float32
@@ -194,6 +196,7 @@ class ImageEditor:
             image = Image.open(resolved_paths[0]).convert("RGB")
 
             logger.debug(f"Editing image with prompt: '{prompt}' (size={run_width}x{run_height})...")
+            import torch
             with warnings.catch_warnings(record=True) as caught_warnings:
                 warnings.simplefilter("always", RuntimeWarning)
                 with torch.inference_mode():
