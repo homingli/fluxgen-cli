@@ -11,7 +11,7 @@ except ImportError:
     from importlib_metadata import distribution  # Python < 3.8 fallback
 
 from fluxgen.generator import generate_image, generate_random_filename, SUPPORTED_MODELS, DEFAULT_MODEL
-from fluxgen.presets import PRESETS
+from fluxgen.presets import PRESETS, ALL_RESOLUTION_PRESETS
 from dataclasses import asdict
 from fluxgen.config import load_config, get_config_value
 
@@ -160,8 +160,15 @@ def get_parser(config, version, interactive=False):
         default=get_config_value(config, "model", DEFAULT_MODEL),
         help=f"Model to use (default: {DEFAULT_MODEL})"
     )
-    gen_parser.add_argument("--width", type=int, default=get_config_value(config, "width", 1024))
-    gen_parser.add_argument("--height", type=int, default=get_config_value(config, "height", 1024))
+    gen_parser.add_argument(
+        "--resolution", "-r",
+        type=str,
+        choices=list(ALL_RESOLUTION_PRESETS.keys()),
+        default=argparse.SUPPRESS,
+        help="Resolution preset (default: tiny 512x512 for faster generation)",
+    )
+    gen_parser.add_argument("--width", type=int, default=argparse.SUPPRESS, help="Image width (overrides --resolution)")
+    gen_parser.add_argument("--height", type=int, default=argparse.SUPPRESS, help="Image height (overrides --resolution)")
     gen_parser.add_argument("--init-image", type=str, help="Reference image for img2img")
     gen_parser.add_argument("--strength", type=float, default=0.4, help="Img2img strength")
     gen_parser.add_argument("--timer", action="store_true", help="Show generation time")
@@ -359,6 +366,37 @@ def handle_generate(args, config, interactive=False):
 
         output_path = resolve_output_path(args.output, args.output_dir)
 
+        # Resolve resolution preset -> actual dimensions
+        # Priority: explicit CLI --width/--height > explicit --resolution > config > default
+        cli_resolution = getattr(args, "resolution", None)
+        config_width = get_config_value(config, "width", None)
+        config_height = get_config_value(config, "height", None)
+        cli_width = getattr(args, "width", None)
+        cli_height = getattr(args, "height", None)
+
+        if cli_width is not None or cli_height is not None:
+            # Explicit --width/--height wins; missing axis falls through chain
+            if cli_width is not None:
+                width = cli_width
+            elif cli_resolution is not None:
+                width = ALL_RESOLUTION_PRESETS[cli_resolution][0]
+            else:
+                width = config_width if config_width is not None else 512
+
+            if cli_height is not None:
+                height = cli_height
+            elif cli_resolution is not None:
+                height = ALL_RESOLUTION_PRESETS[cli_resolution][1]
+            else:
+                height = config_height if config_height is not None else 512
+        elif cli_resolution is not None:
+            # Explicit --resolution overrides config file
+            width, height = ALL_RESOLUTION_PRESETS[cli_resolution]
+        else:
+            # No resolution flag: fall back to config, then default
+            width = config_width if config_width is not None else 512
+            height = config_height if config_height is not None else 512
+
         # Pre-load model before timer starts
         from fluxgen.generator import ModelManager
         preloaded_model = ModelManager.get_model(
@@ -372,8 +410,8 @@ def handle_generate(args, config, interactive=False):
             preset=preset,
             seed=args.seed,
             output=output_path,
-            width=args.width,
-            height=args.height,
+            width=width,
+            height=height,
             style=args.style,
             custom_styles=config.get("styles"),
             init_image=args.init_image,
