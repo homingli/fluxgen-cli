@@ -119,7 +119,7 @@ def generate_random_filename() -> str:
         words = rw.random_words(3, word_max_length=5)
         return "-".join(words) + ".png"
     except Exception as e:
-        logger.debug(f"wonderwords failed, falling back to timestamp: {e}")
+        logger.info(f"wonderwords failed, falling back to timestamp: {e}")
         import time
         return f"generated-{int(time.time())}.png"
 
@@ -171,7 +171,7 @@ def generate_image(
     steps = preset.get("steps", defaults["steps"])
     guidance = preset.get("guidance", defaults["guidance"])
 
-    logger.debug(f"Using model '{model_name}' with {steps} steps, seed={seed}")
+    logger.info(f"Using model '{model_name}' with {steps} steps, seed={seed}")
 
     # Use pre-loaded model or cache lookup
     if model is None:

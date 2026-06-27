@@ -61,7 +61,8 @@ If no subcommand is provided, `fluxgen` defaults to treating the first argument 
 fluxgen "A beautiful cinematic mountain landscape"
 fluxgen gen "A bustling cyberpunk city scene" --preset standard
 fluxgen gen "A fantasy world" --style cinematic
-fluxgen gen "A playful puppy" --model zimage --timer
+fluxgen gen "A playful puppy" --model zimage
+fluxgen gen "A playful puppy" --model zimage --no-timer
 fluxgen gen "Abstract mural" -r 16:9          # widescreen
 fluxgen gen "Portrait sketch" --resolution 3:4 # portrait ratio
 fluxgen gen "Quick test" --width 800           # override width, keep preset height
@@ -81,7 +82,8 @@ The `edit` command supports two powerful editing models:
     ```
 *   **`qwen-image-edit`**: High-fidelity instruction editing utilizing GGUF weights via `diffusers`. Currently supports a **single input image**.
     ```bash
-    fluxgen edit portrait.png "turn into an oil painting" --model qwen-image-edit --timer
+    fluxgen edit portrait.png "turn into an oil painting" --model qwen-image-edit
+fluxgen edit portrait.png "turn into an oil painting" --model qwen-image-edit --no-timer
     ```
 
 ### 3. Interactive REPL Mode
@@ -136,7 +138,7 @@ fluxgen> help
 - `--seed INT`: Deterministic random seed.
 - `--init-image FILE`: Reference image for image-to-image generation.
 - `--strength FLOAT`: Reference image strength (default: `0.4`).
-- `--timer`: Print elapsed generation time.
+- `--no-timer`: Hide generation time (timer is enabled by default).
 
 #### Resolution Presets
 
@@ -163,7 +165,7 @@ fluxgen> help
 - `--quantize INT`: Override MLX quantization for `flux2-klein`.
 - `--width INT`, `--height INT`: Force specific output dimensions (re-scales while preserving aspect ratio, max 1920px).
 - `--seed INT`: Deterministic random seed.
-- `--timer`: Print elapsed editing time.
+- `--no-timer`: Hide editing time (timer is enabled by default).
 
 ---
 
