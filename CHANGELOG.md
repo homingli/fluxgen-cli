@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2 - 2026-06-27
+
+- Fixed `--resolution` flag priority: CLI now correctly overrides config file.
+- Fixed partial `--width`/`--height` fallthrough: when only one dimension is passed, the
+  other falls back to config value before the `tiny` default.
+- Refactored `ModelManager` dispatch from else-fallback chain to explicit lookup table.
+- Lazy-loaded `torch` import to speed up CLI startup.
+- Removed redundant `StyleManager` dict copy and `ModelManager` cache lookup in hot path.
+- Added resolution presets: `tiny`, `square`, `large`, `full` + aspect ratios `1:1`, `4:3`,
+  `3:4`, `16:9`, `9:16`.
+
 ## 0.3.0 - 2026-05-16
 
 - Removed `flux1-schnell` model from supported backends (deprecated).
