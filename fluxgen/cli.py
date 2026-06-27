@@ -171,7 +171,7 @@ def get_parser(config, version, interactive=False):
     gen_parser.add_argument("--height", type=int, default=argparse.SUPPRESS, help="Image height (overrides --resolution)")
     gen_parser.add_argument("--init-image", type=str, help="Reference image for img2img")
     gen_parser.add_argument("--strength", type=float, default=0.4, help="Img2img strength")
-    gen_parser.add_argument("--timer", action="store_true", help="Show generation time")
+    gen_parser.add_argument("--no-timer", action="store_false", dest="timer", default=True, help="Hide generation time")
 
     # ── EDIT COMMAND ──────────────────────────────────────────────────────────
     edit_parser = subparsers.add_parser(
@@ -198,7 +198,7 @@ def get_parser(config, version, interactive=False):
     edit_parser.add_argument("--guidance", type=float, default=None, help="Guidance scale")
     edit_parser.add_argument("--width", type=int, help="Output image width (defaults to input image width)")
     edit_parser.add_argument("--height", "--length", type=int, dest="height", help="Output image height/length (defaults to input image height/length)")
-    edit_parser.add_argument("--timer", action="store_true", help="Show execution time")
+    edit_parser.add_argument("--no-timer", action="store_false", dest="timer", default=True, help="Hide execution time")
 
     # ── INTERACTIVE COMMAND ───────────────────────────────────────────────────
     subparsers.add_parser(
@@ -404,7 +404,7 @@ def handle_generate(args, config, interactive=False):
             quantize=preset.get("quantize"),
         )
 
-        start = time.perf_counter() if args.timer else None
+        start = time.perf_counter() if getattr(args, "timer", True) else None
         generate_image(
             prompt=args.prompt,
             preset=preset,
@@ -452,19 +452,13 @@ def handle_edit(args, interactive=False):
         quantize = getattr(args, "quantize", None)
         seed = getattr(args, "seed", None)
 
-        logger.info(f"Initializing ImageEditor with model '{model_name}'...")
         editor = ImageEditor(model_name=model_name, quantize=quantize)
- 
+
         # Pre-load model before timer starts
-        if model_name == "qwen-image-edit":
-            logger.info("First run will download the Q4_K_M GGUF model (~13GB). It requires disk space and a stable connection.")
-            logger.info("Loading model weights...")
-        else:
-            logger.info(f"Loading mflux model '{model_name}' weights...")
         editor._load_pipeline()
 
         logger.info(f"Applying edit: '{args.prompt}'")
-        start = time.perf_counter() if args.timer else None
+        start = time.perf_counter() if getattr(args, "timer", True) else None
         editor.edit(
             image_paths=args.image,
             prompt=args.prompt,

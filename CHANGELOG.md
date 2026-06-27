@@ -2,6 +2,7 @@
 
 ## 0.3.2 - 2026-06-27
 
+- Replaced `--timer` with `--no-timer` on `generate` and `edit`: timer is enabled by default, pass `--no-timer` to suppress it (opt-out pattern is more intuitive).
 - Fixed `--resolution` flag priority: CLI now correctly overrides config file.
 - Fixed partial `--width`/`--height` fallthrough: when only one dimension is passed, the
   other falls back to config value before the `tiny` default.
