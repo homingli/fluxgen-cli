@@ -62,6 +62,9 @@ fluxgen "A beautiful cinematic mountain landscape"
 fluxgen gen "A bustling cyberpunk city scene" --preset standard
 fluxgen gen "A fantasy world" --style cinematic
 fluxgen gen "A playful puppy" --model zimage --timer
+fluxgen gen "Abstract mural" -r 16:9          # widescreen
+fluxgen gen "Portrait sketch" --resolution 3:4 # portrait ratio
+fluxgen gen "Quick test" --width 800           # override width, keep preset height
 ```
 
 ### 2. Instruction-Based Image Editing
@@ -126,13 +129,30 @@ fluxgen> help
 - `--no-style`: Disable styling completely.
 - `--steps INT`: Override preset inference steps.
 - `--quantize INT`: Override mflux model quantization.
-- `--width INT`, `--height INT`: Output dimensions (default: `1024x1024`).
+- `--resolution PRESET`, `-r PRESET`: Resolution preset (see table below; default: `tiny` `512x512` for fast generation).
+- `--width INT`, `--height INT`: Output dimensions (overrides `--resolution` and config).
 - `--output FILE`: Output filename (auto-generated if not specified).
 - `--output-dir DIR`: Output directory (default: `output`).
 - `--seed INT`: Deterministic random seed.
 - `--init-image FILE`: Reference image for image-to-image generation.
 - `--strength FLOAT`: Reference image strength (default: `0.4`).
 - `--timer`: Print elapsed generation time.
+
+#### Resolution Presets
+
+| Preset | Dimensions | Notes |
+|---|---|---|
+| `tiny` | 512×512 | Default — fast, good for iteration |
+| `square` | 768×768 | |
+| `large` | 1024×1024 | |
+| `full` | 1536×1536 | |
+| `1:1` | 512×512 | Aspect-ratio variant |
+| `16:9` | 960×544 | Widescreen |
+| `9:16` | 544×960 | Portrait / phone |
+| `4:3` | 768×576 | Classic photo |
+| `3:4` | 576×768 | Classic portrait |
+
+**Resolution priority** (highest to lowest): `--width`/`--height` flags > `--resolution` flag > `.fluxgen.toml` config > `tiny` default.
 
 ### Editing Options (`edit`)
 - `--model [flux2-klein|qwen-image-edit]`: Editing model to use (default: `flux2-klein`).
