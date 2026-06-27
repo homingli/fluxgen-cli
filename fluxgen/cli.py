@@ -369,24 +369,33 @@ def handle_generate(args, config, interactive=False):
         # Resolve resolution preset -> actual dimensions
         # Priority: explicit CLI --width/--height > explicit --resolution > config > default
         cli_resolution = getattr(args, "resolution", None)
-        preset_dims = ALL_RESOLUTION_PRESETS.get(cli_resolution, (512, 512))
         config_width = get_config_value(config, "width", None)
         config_height = get_config_value(config, "height", None)
         cli_width = getattr(args, "width", None)
         cli_height = getattr(args, "height", None)
 
         if cli_width is not None or cli_height is not None:
-            # Explicit --width/--height wins over everything
-            width = cli_width if cli_width is not None else preset_dims[0]
-            height = cli_height if cli_height is not None else preset_dims[1]
+            # Explicit --width/--height wins; missing axis falls through chain
+            if cli_width is not None:
+                width = cli_width
+            elif cli_resolution is not None:
+                width = ALL_RESOLUTION_PRESETS[cli_resolution][0]
+            else:
+                width = config_width if config_width is not None else 512
+
+            if cli_height is not None:
+                height = cli_height
+            elif cli_resolution is not None:
+                height = ALL_RESOLUTION_PRESETS[cli_resolution][1]
+            else:
+                height = config_height if config_height is not None else 512
         elif cli_resolution is not None:
             # Explicit --resolution overrides config file
-            width = preset_dims[0]
-            height = preset_dims[1]
+            width, height = ALL_RESOLUTION_PRESETS[cli_resolution]
         else:
             # No resolution flag: fall back to config, then default
-            width = config_width if config_width is not None else preset_dims[0]
-            height = config_height if config_height is not None else preset_dims[1]
+            width = config_width if config_width is not None else 512
+            height = config_height if config_height is not None else 512
 
         # Pre-load model before timer starts
         from fluxgen.generator import ModelManager

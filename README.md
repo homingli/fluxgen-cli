@@ -146,7 +146,7 @@ fluxgen> help
 | `square` | 768×768 | |
 | `large` | 1024×1024 | |
 | `full` | 1536×1536 | |
-| `1:1` | 512×512 | Aspect-ratio variant |
+| `1:1` | 512×512 | Square aspect |
 | `16:9` | 960×544 | Widescreen |
 | `9:16` | 544×960 | Portrait / phone |
 | `4:3` | 768×576 | Classic photo |

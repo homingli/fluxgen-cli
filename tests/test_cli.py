@@ -331,3 +331,61 @@ def test_handle_generate_resolution_overrides_config():
     _, kwargs = mock_gen.call_args
     assert kwargs["width"] == 1024  # from 'large' preset, overrides config
     assert kwargs["height"] == 1024  # from 'large' preset, overrides config
+
+
+def test_handle_generate_partial_width_falls_back_to_config():
+    """Partial --width only: missing height falls back to config before default."""
+    cli = load_cli_without_mflux()
+
+    with patch.object(cli, "load_config", return_value={}), \
+         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.generator.ModelManager") as mock_mm:
+        mock_mm.get_model.return_value = MagicMock()
+
+        # Only width is set; height is absent (argparse.SUPPRESS)
+        args = SimpleNamespace(
+            width=800,
+            prompt="a prompt", preset_idx=0, preset=None,
+            steps=None, quantize=None,
+            output=None, output_dir="output",
+            seed=None, style="none",
+            init_image=None, strength=0.4,
+            model="zimage-turbo", verbose=False, silent=False,
+            timer=False,
+        )
+        config = {"defaults": {"height": 768}}
+        cli.handle_generate(args, config)
+
+    _, kwargs = mock_gen.call_args
+    assert kwargs["width"] == 800
+    assert kwargs["height"] == 768  # from config, not 512 default
+
+
+def test_handle_generate_partial_width_explicit_resolution_uses_preset():
+    """Partial --width with explicit -r: missing height uses preset, not config."""
+    cli = load_cli_without_mflux()
+
+    with patch.object(cli, "load_config", return_value={}), \
+         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.generator.ModelManager") as mock_mm:
+        mock_mm.get_model.return_value = MagicMock()
+
+        # Only width is set, but -r full is explicit
+        args = SimpleNamespace(
+            resolution="full", width=800,
+            prompt="a prompt", preset_idx=0, preset=None,
+            steps=None, quantize=None,
+            output=None, output_dir="output",
+            seed=None, style="none",
+            init_image=None, strength=0.4,
+            model="zimage-turbo", verbose=False, silent=False,
+            timer=False,
+        )
+        if hasattr(args, "height"):
+            del args.height
+        config = {"defaults": {"height": 768}}
+        cli.handle_generate(args, config)
+
+    _, kwargs = mock_gen.call_args
+    assert kwargs["width"] == 800
+    assert kwargs["height"] == 1536  # from 'full' preset, not config 768
