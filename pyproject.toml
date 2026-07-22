@@ -8,7 +8,7 @@ version = "0.3.2"
 description = "A CLI tool for AI image generation and instruction-based editing"
 authors = [{name = "hml"}]
 dependencies = [
-    "mflux>=0.14.0",
+    "mflux>=0.18.0",
     "wonderwords",
     "torch>=2.2.0",
     "diffusers>=0.30.0",
