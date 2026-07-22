@@ -216,10 +216,15 @@ def main(argv=None):
 
     # Get version from pyproject.toml
     try:
-        dist = distribution("fluxgen-cli")
-        version = dist.version
+        version = distribution("fluxgen-cli").version
     except (ImportError, FileNotFoundError):
-        version = "0.3.1"
+        # Fall back to reading pyproject.toml directly (Python 3.11+ has tomllib in stdlib)
+        try:
+            import tomllib
+            with Path(__file__).parent.parent.joinpath("pyproject.toml").open("rb") as f:
+                version = tomllib.load(f)["project"]["version"]
+        except (ImportError, KeyError, OSError):
+            version = "unknown"
 
     parser = get_parser(config, version)
 
