@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3 - 2026-07-22
+
+- Bumped `mflux` floor to `>=0.18.0` (FLUX.2-klein-9b-kv KV-cache speedup on multi-ref edits, `text_encoder_2` crash fix).
+- Raised dep floors: `torch>=2.13.0`, `torchvision>=0.28.0`, `diffusers>=0.39.0`, `gguf>=0.19.0`, `pytest>=9.1.1`.
+- Transitive bumps: `transformers`, `accelerate`, `safetensors`, `numpy`, `setuptools`, `pillow`.
+
 ## 0.3.2 - 2026-06-27
 
 - Replaced `--timer` with `--no-timer` on `generate` and `edit`: timer is enabled by default, pass `--no-timer` to suppress it (opt-out pattern is more intuitive).

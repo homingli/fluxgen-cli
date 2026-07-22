@@ -4,19 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fluxgen-cli"
-version = "0.3.2"
+version = "0.3.3"
 description = "A CLI tool for AI image generation and instruction-based editing"
 authors = [{name = "hml"}]
 dependencies = [
     "mflux>=0.18.0",
     "wonderwords",
-    "torch>=2.2.0",
-    "diffusers>=0.30.0",
+    "torch>=2.13.0",
+    "diffusers>=0.39.0",
     "transformers",
     "accelerate",
     "pillow",
-    "torchvision>=0.26.0",
-    "gguf>=0.10.0",
+    "torchvision>=0.28.0",
+    "gguf>=0.19.0",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
@@ -30,5 +30,5 @@ include = ["fluxgen*"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
+    "pytest>=9.1.1",
 ]
