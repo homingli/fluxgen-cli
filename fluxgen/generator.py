@@ -1,6 +1,7 @@
 import logging
 import random
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 from PIL import Image
@@ -59,7 +60,6 @@ class ModelManager:
 
 MODEL_DEFAULTS = {
     "zimage-turbo": {
-        "guidance": 0.0,       # turbo ignores guidance
         "steps": 4,
     },
     "zimage": {
@@ -113,15 +113,22 @@ _MODEL_DISPATCH: dict[str, Callable[[int | None], Any]] = {
 
 def generate_random_filename() -> str:
     """Generate a random 3-word filename with .png extension"""
-    try:
-        from wonderwords import RandomWord
-        rw = RandomWord()
-        words = rw.random_words(3, word_max_length=5)
-        return "-".join(words) + ".png"
-    except Exception as e:
-        logger.info(f"wonderwords failed, falling back to timestamp: {e}")
-        import time
-        return f"generated-{int(time.time())}.png"
+    if _random_word is not None:
+        try:
+            words = _random_word.random_words(3, word_max_length=5)
+            return "-".join(words) + ".png"
+        except Exception as e:
+            logger.info(f"wonderwords.random_words failed, falling back to timestamp: {e}")
+            return f"generated-{int(time.time())}.png"
+    logger.info("wonderwords unavailable, falling back to timestamp filename")
+    return f"generated-{int(time.time())}.png"
+
+
+try:
+    from wonderwords import RandomWord as _RandomWord
+    _random_word = _RandomWord()
+except ImportError:
+    _random_word = None
 
 def generate_image(
     prompt: str,

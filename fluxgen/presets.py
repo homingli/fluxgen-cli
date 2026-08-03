@@ -15,6 +15,14 @@ PRESETS: dict[int, Preset] = {
     8: Preset(steps=16, quantize=16),
 }
 
+PRESET_NAMES: dict[int, str] = {
+    0: "fast",
+    3: "standard",
+    8: "quality",
+}
+
+PRESETS_BY_NAME: dict[str, int] = {name: idx for idx, name in PRESET_NAMES.items()}
+
 
 # Resolution presets: preset name -> (width, height)
 # Smaller defaults = faster generation. 512x512 is the sweet spot for speed.
