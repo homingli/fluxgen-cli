@@ -144,7 +144,6 @@ class ImageEditor:
 
         # Detect input image dimensions from the first provided image
         try:
-            from PIL import UnidentifiedImageError
             with Image.open(resolved_paths[0]) as img:
                 img_w, img_h = img.size
         except (OSError, UnidentifiedImageError) as e:

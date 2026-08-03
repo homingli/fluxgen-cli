@@ -11,9 +11,10 @@ except ImportError:
     from importlib_metadata import distribution  # Python < 3.8 fallback
 
 from fluxgen.generator import generate_image, generate_random_filename, SUPPORTED_MODELS, DEFAULT_MODEL
-from fluxgen.presets import PRESETS, ALL_RESOLUTION_PRESETS
+from fluxgen.presets import PRESETS, ALL_RESOLUTION_PRESETS, PRESETS_BY_NAME
 from dataclasses import asdict
 from fluxgen.config import load_config, get_config_value
+from fluxgen.exceptions import FluxgenError, PathTraversalError
 
 logger = logging.getLogger("fluxgen")
 
@@ -36,13 +37,17 @@ class InteractiveParser(argparse.ArgumentParser):
         self.exit(2, f"{self.prog}: error: {message}\n")
 
 
-def setup_logging(verbose=False, silent=False):
+def _resolve_log_level_and_fmt(verbose, silent):
     level = logging.DEBUG if verbose else logging.ERROR if silent else logging.INFO
+    fmt = "%(levelname)s: %(message)s" if verbose else "%(message)s"
+    return level, fmt
+
+
+def setup_logging(verbose=False, silent=False):
+    level, fmt = _resolve_log_level_and_fmt(verbose, silent)
     handler = logging.StreamHandler()
     handler.setLevel(level)
-    fmt = "%(levelname)s: %(message)s" if verbose else "%(message)s"
-    formatter = logging.Formatter(fmt)
-    handler.setFormatter(formatter)
+    handler.setFormatter(logging.Formatter(fmt))
     logger.handlers.clear()
     logger.addHandler(handler)
     logger.setLevel(level)
@@ -292,8 +297,13 @@ def handle_interactive(config, version):
                 continue
                 
             silent = getattr(args, "silent", False)
-            setup_logging(verbose=getattr(args, "verbose", False), silent=silent)
-            
+            verbose = getattr(args, "verbose", False)
+            level, fmt = _resolve_log_level_and_fmt(verbose, silent)
+            if logger.handlers:
+                logger.handlers[0].setLevel(level)
+                logger.handlers[0].setFormatter(logging.Formatter(fmt))
+            logger.setLevel(level)
+
             with suppress_external_output(silent):
                 if args.command in ["generate", "gen"]:
                     handle_generate(args, config, interactive=True)
@@ -308,9 +318,6 @@ def handle_interactive(config, version):
             break
         except Exception as e:
             logger.error(f"Error: {e}")
-
-from contextlib import contextmanager
-from fluxgen.exceptions import FluxgenError, PathTraversalError
 
 @contextmanager
 def error_handler(args, interactive=False):
@@ -346,7 +353,6 @@ def resolve_output_path(output_arg, output_dir_arg, default_filename_func=None):
         if default_filename_func:
             output_filename = default_filename_func()
         else:
-            from fluxgen.generator import generate_random_filename
             output_filename = generate_random_filename()
         final_path = (output_dir / output_filename).resolve()
         
@@ -355,10 +361,9 @@ def resolve_output_path(output_arg, output_dir_arg, default_filename_func=None):
 def handle_generate(args, config, interactive=False):
     with error_handler(args, interactive):
         # Determine preset index
-        named_indices = {"fast": 0, "standard": 3, "quality": 8}
         preset_idx = args.preset_idx
         if args.preset:
-            preset_idx = named_indices[args.preset]
+            preset_idx = PRESETS_BY_NAME[args.preset]
 
         if preset_idx is None:
             preset_idx = get_config_value(config, "preset", 0)
