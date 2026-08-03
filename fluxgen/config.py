@@ -8,10 +8,17 @@ logger = logging.getLogger("fluxgen")
 DEFAULT_CONFIG_FILENAME = ".fluxgen.toml"
 
 def load_config() -> dict[str, Any]:
-    """Load configuration from .fluxgen.toml in current dir or home dir."""
+    """Load configuration from .fluxgen.toml in home dir and current dir.
+
+    Returns a dict with optional 'defaults' and 'styles' sections. The two
+    locations are processed in order: home first, then current directory.
+    dict.update() is later-wins, so current-directory values override home
+    values when both files exist.
+    """
     config = {}
-    
-    # Locations to check (in order of priority: local then home)
+
+    # Process in order: home first, then cwd. dict.update() is later-wins,
+    # so cwd overrides home when both files exist.
     locations = [
         Path.home() / DEFAULT_CONFIG_FILENAME,
         Path.cwd() / DEFAULT_CONFIG_FILENAME,

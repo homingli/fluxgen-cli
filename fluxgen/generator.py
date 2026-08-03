@@ -1,4 +1,5 @@
 import logging
+import os
 import random
 import threading
 import time
@@ -112,16 +113,30 @@ _MODEL_DISPATCH: dict[str, Callable[[int | None], Any]] = {
 }
 
 def generate_random_filename() -> str:
-    """Generate a random 3-word filename with .png extension"""
+    """Generate a random 3-word filename with .png extension.
+
+    Uses wonderwords for the happy path. Falls back to a millisecond
+    timestamp + 4-hex-char random suffix if wonderwords is unavailable or
+    fails. The suffix guarantees uniqueness for two back-to-back calls
+    within the same millisecond (vanishingly rare but possible on fast
+    hardware or under monotonic-clock skew).
+    """
     if _random_word is not None:
         try:
             words = _random_word.random_words(3, word_max_length=5)
             return "-".join(words) + ".png"
         except Exception as e:
             logger.info(f"wonderwords.random_words failed, falling back to timestamp: {e}")
-            return f"generated-{int(time.time())}.png"
+            return _timestamp_filename()
     logger.info("wonderwords unavailable, falling back to timestamp filename")
-    return f"generated-{int(time.time())}.png"
+    return _timestamp_filename()
+
+
+def _timestamp_filename() -> str:
+    """Fallback filename: millisecond timestamp + 4-hex-char random suffix."""
+    ts_ms = int(time.time() * 1000)
+    suffix = os.urandom(2).hex()
+    return f"generated-{ts_ms}-{suffix}.png"
 
 
 try:
