@@ -389,3 +389,100 @@ def test_handle_generate_partial_width_explicit_resolution_uses_preset():
     _, kwargs = mock_gen.call_args
     assert kwargs["width"] == 800
     assert kwargs["height"] == 1536  # from 'full' preset, not config 768
+
+
+# ── _get_version ─────────────────────────────────────────────────────────────────
+
+
+def test_get_version_caches_after_first_call():
+    """_get_version resolves once and reuses the cached value."""
+    cli = load_cli_without_mflux()
+    cli._cached_version = None  # fresh state
+
+    with patch.object(cli, "distribution") as mock_dist:
+        mock_dist.return_value.version = "9.9.9"
+        v1 = cli._get_version()
+        v2 = cli._get_version()
+        v3 = cli._get_version()
+
+    assert v1 == v2 == v3 == "9.9.9"
+    assert mock_dist.call_count == 1
+    assert cli._cached_version == "9.9.9"
+
+
+def test_get_version_falls_back_to_pyproject_when_distribution_missing():
+    """When importlib.metadata fails, read pyproject.toml directly."""
+    import tomllib
+    cli = load_cli_without_mflux()
+    cli._cached_version = None
+
+    with patch.object(cli, "distribution", side_effect=FileNotFoundError("nope")):
+        v = cli._get_version()
+
+    pyproject = Path(__file__).parent.parent / "pyproject.toml"
+    with pyproject.open("rb") as f:
+        expected = tomllib.load(f)["project"]["version"]
+
+    assert v == expected
+    assert cli._cached_version == expected
+
+
+def test_get_version_returns_unknown_when_all_lookups_fail():
+    """When both distribution and pyproject.toml fail, return 'unknown'."""
+    cli = load_cli_without_mflux()
+    cli._cached_version = None
+
+    # Patch distribution on the cli instance directly — patch("fluxgen.cli.distribution")
+    # re-imports cli and patches a different module object.
+    with patch.object(cli, "distribution", side_effect=FileNotFoundError("nope")):
+        # Patch Path.open so the pyproject.toml fallback also fails.
+        with patch("pathlib.Path.open", side_effect=OSError("nope")):
+            v = cli._get_version()
+
+    assert v == "unknown"
+    assert cli._cached_version == "unknown"
+
+
+# ── Fast path: --help / --version skip config load ─────────────────────────────
+
+
+def test_help_does_not_load_config(capsys):
+    """`fluxgen --help` exits before handle_* runs, so config load is skipped."""
+    cli = load_cli_without_mflux()
+
+    # patch.object(cli, ...) is required: patch("fluxgen.cli.load_config")
+    # re-imports cli and patches a different module object than the one
+    # load_cli_without_mflux returns.
+    with patch.object(cli, "load_config") as mock_load_config:
+        with pytest.raises(SystemExit):
+            cli.main(["--help"])
+
+    mock_load_config.assert_not_called()
+    captured = capsys.readouterr()
+    assert "fluxgen" in captured.out
+
+
+def test_version_does_not_load_config(capsys):
+    """`fluxgen --version` exits before handle_* runs, so config load is skipped."""
+    cli = load_cli_without_mflux()
+
+    with patch.object(cli, "load_config") as mock_load_config:
+        with pytest.raises(SystemExit):
+            cli.main(["--version"])
+
+    mock_load_config.assert_not_called()
+    captured = capsys.readouterr()
+    # argparse prints version to stdout
+    assert "fluxgen" in captured.out
+
+
+def test_normal_command_still_loads_config():
+    """Non-passthrough commands still go through load_config()."""
+    cli = load_cli_without_mflux()
+
+    with patch.object(cli, "load_config", return_value={}) as mock_load_config, \
+         patch.object(cli, "handle_generate") as handle_generate:
+        cli.main(["gen", "a prompt"])
+
+    mock_load_config.assert_called_once()
+    handle_generate.assert_called_once()

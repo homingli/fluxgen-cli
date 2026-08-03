@@ -216,24 +216,52 @@ def get_parser(config, version, interactive=False):
     return parser
 
 
-def main(argv=None):
-    config = load_config()
+def _get_version() -> str:
+    """Resolve the fluxgen-cli version. Cached after first call.
 
-    # Get version from pyproject.toml
+    Looks up via `importlib.metadata` first; falls back to reading
+    `pyproject.toml` directly when the package is not installed (e.g.
+    when running from a source checkout). Returns "unknown" if neither
+    path yields a version.
+    """
+    global _cached_version
+    if _cached_version is not None:
+        return _cached_version
+
     try:
-        version = distribution("fluxgen-cli").version
+        _cached_version = distribution("fluxgen-cli").version
+        return _cached_version
     except (ImportError, FileNotFoundError):
-        # Fall back to reading pyproject.toml directly (Python 3.11+ has tomllib in stdlib)
-        try:
-            import tomllib
-            with Path(__file__).parent.parent.joinpath("pyproject.toml").open("rb") as f:
-                version = tomllib.load(f)["project"]["version"]
-        except (ImportError, KeyError, OSError):
-            version = "unknown"
+        pass
 
-    parser = get_parser(config, version)
+    try:
+        import tomllib
+        with Path(__file__).parent.parent.joinpath("pyproject.toml").open("rb") as f:
+            _cached_version = tomllib.load(f)["project"]["version"]
+            return _cached_version
+    except (ImportError, KeyError, OSError):
+        pass
 
-    args = parser.parse_args(with_default_command(list(sys.argv[1:] if argv is None else argv)))
+    _cached_version = "unknown"
+    return _cached_version
+
+
+_cached_version: str | None = None
+
+
+def main(argv=None):
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    adjusted_argv = with_default_command(raw_argv)
+
+    # Fast path: --help / --version are handled by argparse natively and exit
+    # before handle_* ever runs, so they don't need config-driven defaults.
+    # Skip the config load (and the cached version lookup if it's the very
+    # first call) for these.
+    is_passthrough = any(arg in PASSTHROUGH_FLAGS for arg in adjusted_argv)
+    config = {} if is_passthrough else load_config()
+
+    parser = get_parser(config, _get_version())
+    args = parser.parse_args(adjusted_argv)
 
     if getattr(args, "verbose", False) and getattr(args, "silent", False):
         parser.error("argument -s/--silent: not allowed with argument -v/--verbose")
@@ -248,7 +276,7 @@ def main(argv=None):
         elif args.command == "edit":
             handle_edit(args)
         elif args.command in ["interactive", "repl"]:
-            handle_interactive(config, version)
+            handle_interactive(config, _get_version())
         else:
             parser.print_help()
 
@@ -437,7 +465,10 @@ def handle_edit(args, interactive=False):
     with error_handler(args, interactive):
         from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS
 
-        # Robust path resolution (handles ~ and relative paths)
+        # Cheap path checks (existence + is_file) duplicated from
+        # ImageEditor._resolve_and_validate_inputs: lets us fail-fast
+        # before constructing the editor + loading the pipeline below.
+        # The editor re-runs these plus a full PIL integrity check.
         input_paths = [Path(img).expanduser().resolve() for img in args.image]
         for p in input_paths:
             if not p.exists():
