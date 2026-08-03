@@ -185,3 +185,134 @@ def test_editor_missing_input_fails_before_pipeline_load(tmp_path):
         )
 
     editor._load_pipeline.assert_not_called()
+
+
+# ── _resolve_and_validate_inputs ──────────────────────────────────────────────────────
+
+
+def test_resolve_and_validate_inputs_returns_first_image_size(tmp_path):
+    """Helper returns the (width, height) of the first image."""
+    from PIL import Image as PILImage
+
+    image_a = tmp_path / "a.png"
+    image_b = tmp_path / "b.png"
+    PILImage.new("RGB", (640, 480), "red").save(image_a)
+    PILImage.new("RGB", (1024, 768), "blue").save(image_b)
+
+    editor = ImageEditor(model_name="flux2-klein")
+    paths, size = editor._resolve_and_validate_inputs([str(image_a), str(image_b)])
+
+    assert len(paths) == 2
+    assert paths[0] == image_a.resolve()
+    assert paths[1] == image_b.resolve()
+    assert size == (640, 480)
+
+
+def test_resolve_and_validate_inputs_rejects_missing_file(tmp_path):
+    editor = ImageEditor(model_name="flux2-klein")
+    missing = tmp_path / "missing.png"
+
+    with pytest.raises(FileNotFoundError, match="Input image not found"):
+        editor._resolve_and_validate_inputs([str(missing)])
+
+
+def test_resolve_and_validate_inputs_rejects_empty_list():
+    """Empty image_paths raises ValueError (no fallback to defaults)."""
+    editor = ImageEditor(model_name="flux2-klein")
+
+    with pytest.raises(ValueError, match="must be non-empty"):
+        editor._resolve_and_validate_inputs([])
+
+
+def test_resolve_and_validate_inputs_rejects_directory(tmp_path):
+    editor = ImageEditor(model_name="flux2-klein")
+    subdir = tmp_path / "subdir"
+    subdir.mkdir()
+
+    with pytest.raises(ValueError, match="must be a file"):
+        editor._resolve_and_validate_inputs([str(subdir)])
+
+
+def test_resolve_and_validate_inputs_rejects_corrupt_image(tmp_path):
+    from fluxgen.exceptions import InvalidImageError
+
+    corrupt = tmp_path / "corrupt.png"
+    corrupt.write_bytes(b"not a valid image file at all")
+
+    editor = ImageEditor(model_name="flux2-klein")
+    with pytest.raises(InvalidImageError):
+        editor._resolve_and_validate_inputs([str(corrupt)])
+
+
+def test_resolve_and_validate_inputs_size_in_same_open_as_verify(tmp_path):
+    """First image is opened once for both size lookup and verify.
+
+    This is the I/O optimization: previously the helper opened the first
+    image twice (once for verify, once for size). Now both happen in one
+    open (.size is a free header lookup before verify() walks the file).
+    """
+    from PIL import Image as PILImage
+
+    image = tmp_path / "a.png"
+    PILImage.new("RGB", (100, 200), "red").save(image)
+
+    editor = ImageEditor(model_name="flux2-klein")
+
+    real_open = PILImage.open
+    open_count = 0
+
+    def counting_open(path, *args, **kwargs):
+        nonlocal open_count
+        open_count += 1
+        return real_open(path, *args, **kwargs)
+
+    with patch("PIL.Image.open", new=counting_open):
+        paths, size = editor._resolve_and_validate_inputs([str(image)])
+
+    assert open_count == 1
+    assert size == (100, 200)
+
+
+def test_resolve_and_validate_inputs_multi_image_one_open_per_file(tmp_path):
+    """Multi-image: one open per file (verify only for non-first images)."""
+    from PIL import Image as PILImage
+
+    image_a = tmp_path / "a.png"
+    image_b = tmp_path / "b.png"
+    image_c = tmp_path / "c.png"
+    PILImage.new("RGB", (640, 480), "red").save(image_a)
+    PILImage.new("RGB", (1024, 768), "blue").save(image_b)
+    PILImage.new("RGB", (320, 240), "green").save(image_c)
+
+    editor = ImageEditor(model_name="flux2-klein")
+
+    real_open = PILImage.open
+    open_count = 0
+
+    def counting_open(path, *args, **kwargs):
+        nonlocal open_count
+        open_count += 1
+        return real_open(path, *args, **kwargs)
+
+    with patch("PIL.Image.open", new=counting_open):
+        paths, size = editor._resolve_and_validate_inputs(
+            [str(image_a), str(image_b), str(image_c)]
+        )
+
+    assert open_count == 3  # one open per image, no extra size re-read
+    assert size == (640, 480)
+
+
+def test_resolve_and_validate_inputs_expands_user_and_resolves(tmp_path):
+    """Paths with ~ and relative components are resolved."""
+    from PIL import Image as PILImage
+
+    image = tmp_path / "a.png"
+    PILImage.new("RGB", (50, 50), "red").save(image)
+
+    editor = ImageEditor(model_name="flux2-klein")
+    paths, _ = editor._resolve_and_validate_inputs([str(image)])
+
+    assert paths[0].is_absolute()
+    assert paths[0] == image.resolve()
+

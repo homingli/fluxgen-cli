@@ -18,6 +18,10 @@ GGUF_REPO = "unsloth/Qwen-Image-Edit-2511-GGUF"
 GGUF_FILENAME = "qwen-image-edit-2511-Q4_K_M.gguf"
 BASE_MODEL_CONFIG = "Qwen/Qwen-Image-Edit-2511"
 
+# Maximum dimension (longest side) for edit outputs. Larger inputs are
+# downscaled to fit while preserving aspect ratio.
+MAX_EDIT_DIMENSION = 1920
+
 
 class ImageEditor:
     """Handles image editing using Qwen-Image-Edit-2511-GGUF or Flux2-Klein-Edit."""
@@ -108,6 +112,67 @@ class ImageEditor:
         )
         logger.debug("MFLUX model loaded successfully.")
 
+    def _resolve_and_validate_inputs(
+        self, image_paths: list[str]
+    ) -> tuple[list[Path], tuple[int, int]]:
+        """Resolve input paths, verify file integrity, and read the first image's size.
+
+        Each path is opened once for existence + `verify()` integrity check.
+        The first image's `.size` is captured in the same open: the header is
+        read lazily by `Image.open()`, so `.size` is a free lookup before
+        `verify()` walks the file. Subsequent images only need the integrity
+        check (no size read).
+
+        Precondition: `image_paths` must be non-empty. argparse's `nargs="+"`
+        guarantees this for the CLI path; calling with `[]` raises
+        `ValueError` explicitly.
+
+        Returns:
+            (resolved_paths, first_image_size) where `first_image_size` is
+            the `(width, height)` of `image_paths[0]`.
+
+        Raises:
+            ValueError: `image_paths` is empty, or a path points at a
+                directory rather than a file.
+            FileNotFoundError: a path does not exist.
+            InvalidImageError: a file is unreadable or fails integrity check.
+        """
+        from fluxgen.exceptions import InvalidImageError
+        from PIL import UnidentifiedImageError
+
+        if not image_paths:
+            raise ValueError("image_paths must be non-empty")
+
+        resolved_paths: list[Path] = []
+        first_size: tuple[int, int] | None = None
+
+        for idx, path in enumerate(image_paths):
+            input_path = Path(path).expanduser().resolve()
+            if not input_path.exists():
+                raise FileNotFoundError(f"Input image not found: {input_path}")
+            if not input_path.is_file():
+                raise ValueError(f"Input image must be a file: {input_path}")
+
+            try:
+                with Image.open(input_path) as img:
+                    if idx == 0:
+                        first_size = img.size
+                    img.verify()
+            except UnidentifiedImageError:
+                raise InvalidImageError(
+                    f"Invalid or corrupted image file: {input_path}"
+                )
+            except Exception as e:
+                raise InvalidImageError(
+                    f"Could not verify image file {input_path}: {e}"
+                )
+
+            resolved_paths.append(input_path)
+
+        # Guaranteed by the empty-list guard above + the `if idx == 0` branch.
+        assert first_size is not None
+        return resolved_paths, first_size
+
     def edit(
         self,
         image_paths: list[str],
@@ -121,34 +186,7 @@ class ImageEditor:
         height: int | None = None,
     ) -> None:
         """Perform instruction-based image editing."""
-        from fluxgen.exceptions import InvalidImageError
-        from PIL import UnidentifiedImageError
-
-        resolved_paths = []
-        for path in image_paths:
-            input_path = Path(path).expanduser().resolve()
-            if not input_path.exists():
-                raise FileNotFoundError(f"Input image not found: {input_path}")
-            if not input_path.is_file():
-                raise ValueError(f"Input image must be a file: {input_path}")
-            
-            try:
-                with Image.open(input_path) as img:
-                    img.verify()
-            except UnidentifiedImageError:
-                raise InvalidImageError(f"Invalid or corrupted image file: {input_path}")
-            except Exception as e:
-                raise InvalidImageError(f"Could not verify image file {input_path}: {e}")
-
-            resolved_paths.append(input_path)
-
-        # Detect input image dimensions from the first provided image
-        try:
-            with Image.open(resolved_paths[0]) as img:
-                img_w, img_h = img.size
-        except (OSError, UnidentifiedImageError) as e:
-            logger.warning(f"Could not read dimensions of input image: {e}. Defaulting to 1024x1024.")
-            img_w, img_h = 1024, 1024
+        resolved_paths, (img_w, img_h) = self._resolve_and_validate_inputs(image_paths)
 
         # Log warning if multiple images are provided and we are using default size from first image
         if len(resolved_paths) > 1 and (width is None or height is None):
@@ -159,25 +197,24 @@ class ImageEditor:
         run_width = width if width is not None else img_w
         run_height = height if height is not None else img_h
 
-        # Limit maximum dimensions to 1920px while preserving aspect ratio
-        MAX_DIM = 1920
-        if run_width > MAX_DIM or run_height > MAX_DIM:
+        # Limit maximum dimensions to MAX_EDIT_DIMENSION while preserving aspect ratio
+        if run_width > MAX_EDIT_DIMENSION or run_height > MAX_EDIT_DIMENSION:
             aspect_ratio = run_width / run_height
             if run_width > run_height:
-                new_w = MAX_DIM
-                new_h = int(round(MAX_DIM / aspect_ratio))
+                new_w = MAX_EDIT_DIMENSION
+                new_h = int(round(MAX_EDIT_DIMENSION / aspect_ratio))
             else:
-                new_h = MAX_DIM
-                new_w = int(round(MAX_DIM * aspect_ratio))
+                new_h = MAX_EDIT_DIMENSION
+                new_w = int(round(MAX_EDIT_DIMENSION * aspect_ratio))
 
             if width is not None or height is not None:
                 logger.warning(
-                    f"Requested dimensions ({run_width}x{run_height}) exceed the {MAX_DIM}px limit. "
+                    f"Requested dimensions ({run_width}x{run_height}) exceed the {MAX_EDIT_DIMENSION}px limit. "
                     f"Downscaling overrides to {new_w}x{new_h} to preserve aspect ratio."
                 )
             else:
                 logger.warning(
-                    f"Input image dimensions ({img_w}x{img_h}) exceed the {MAX_DIM}px limit. "
+                    f"Input image dimensions ({img_w}x{img_h}) exceed the {MAX_EDIT_DIMENSION}px limit. "
                     f"Downscaling to {new_w}x{new_h} to preserve aspect ratio."
                 )
             run_width, run_height = new_w, new_h
@@ -192,7 +229,10 @@ class ImageEditor:
             run_guidance = guidance_scale if guidance_scale is not None else EDIT_DEFAULT_GUIDANCE
 
             logger.debug(f"Opening input image: {resolved_paths[0]}")
-            image = Image.open(resolved_paths[0]).convert("RGB")
+            # verify() in the validation step invalidated the cached pixel
+            # data, so we need a fresh open here for the RGB conversion.
+            with Image.open(resolved_paths[0]) as raw:
+                image = raw.convert("RGB")
 
             logger.debug(f"Editing image with prompt: '{prompt}' (size={run_width}x{run_height})...")
             import torch
