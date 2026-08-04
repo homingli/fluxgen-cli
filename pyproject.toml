@@ -21,8 +21,15 @@ dependencies = [
 requires-python = ">=3.10"
 readme = "README.md"
 
+[project.optional-dependencies]
+mcp = [
+    "mcp[cli]>=2.0,<3.0",
+    "pydantic>=2.7",
+]
+
 [project.scripts]
 fluxgen = "fluxgen.cli:main"
+fluxgen-mcp = "fluxgen_mcp.server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -31,4 +38,10 @@ include = ["fluxgen*"]
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "mcp[cli]>=2.0,<3.0",
+    "pydantic>=2.7",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
