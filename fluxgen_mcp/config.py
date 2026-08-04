@@ -152,15 +152,14 @@ def load_mcp_settings() -> MCPSettings:
 
     # Precompile blocklist patterns. Invalid regex strings are
     # dropped here (with a warning) so a typo in the config does
-    # not crash the server.
+    # not crash the server. Note: `tomllib.load` cannot return
+    # compiled `re.Pattern` objects, so every entry here is a
+    # raw string. The `MCPSettings` field type allows patterns
+    # so that tests / third-party callers can construct compiled
+    # defaults directly.
     raw_patterns = merged["prompt_blocklist"]
     compiled: list[Pattern[str]] = []
     for pattern in raw_patterns:
-        if isinstance(pattern, Pattern):
-            # Already compiled (e.g. a future contributor adding
-            # compiled defaults to DEFAULTS).
-            compiled.append(pattern)
-            continue
         try:
             compiled.append(re.compile(pattern, flags=re.IGNORECASE))
         except re.error as exc:

@@ -95,6 +95,53 @@ async def test_success_writes_audit_record_with_seed_and_path(tmp_path: Path, mo
     assert rec["model"] == "zimage-turbo"
     assert rec["output_path"] == result["path"]
     assert rec["error_code"] is None
+    # generate_image has no input_paths; the field is omitted.
+    assert "input_paths" not in rec
+
+
+async def test_edit_success_writes_audit_record_with_input_paths(
+    tmp_path: Path, monkeypatch,
+):
+    """`edit_image` must populate `input_paths` in the audit record
+    so traceability is preserved when the stem prefix is dropped
+    from the output filename.
+    """
+    from PIL import Image
+    from unittest.mock import MagicMock
+
+    s = _settings(tmp_path)
+    inp = tmp_path / "input.png"
+    Image.new("RGB", (50, 50), (255, 0, 0)).save(inp)
+
+    # Inline ImageEditor mock (avoids cross-file fixture dependency).
+    def fake_ctor(*, model_name, quantize=None):
+        inst = MagicMock()
+        inst.model_name = model_name
+        inst.quantize = quantize
+
+        def fake_edit(*, image_paths, prompt, output_path, **_):
+            Image.new("RGB", (1, 1), (255, 255, 255)).save(output_path)
+
+        inst._load_pipeline = MagicMock()
+        inst.edit = MagicMock(side_effect=fake_edit)
+        return inst
+
+    monkeypatch.setattr("fluxgen_mcp.tools.edit.ImageEditor", fake_ctor)
+
+    server = build_server(s)
+    fn = _get_tool(server, "edit_image")
+
+    result = await fn(
+        input_paths=[str(inp)], prompt="x", output_subdir="default",
+    )
+
+    records = _read_audit(Path(s.audit_log_path))
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["tool"] == "edit_image"
+    assert rec["result"] == "ok"
+    assert rec["input_paths"] == [str(inp.resolve())]
+    assert rec["output_path"] == result["path"]
 
 
 async def test_busy_surfaces_as_tool_error(tmp_path: Path, mock_generate):

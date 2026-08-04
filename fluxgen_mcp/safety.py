@@ -111,9 +111,12 @@ def validate_prompt(settings: MCPSettings, prompt: str) -> None:
         )
     for pattern in settings.prompt_blocklist:
         if not isinstance(pattern, re.Pattern):
+            # Avoid logging the full pattern — a caller could
+            # accidentally pass a multi-MB string (e.g. a path or
+            # prompt). Report length only.
             logger.warning(
-                "prompt_blocklist entry %r is not a compiled Pattern; skipping",
-                pattern,
+                "prompt_blocklist entry is not a compiled Pattern (len=%d); skipping",
+                len(pattern) if hasattr(pattern, "__len__") else -1,
             )
             continue
         if pattern.search(prompt):
@@ -149,6 +152,11 @@ class AuditLog:
             os.chmod(self.path, 0o600)
 
     def write(self, record: dict[str, Any]) -> None:
+        # Defensive: callers that bypass `make_audit_record` (e.g.
+        # the audit-log tests, third-party callers) get a
+        # timestamp set here. `make_audit_record` deliberately
+        # does NOT set `ts` so this `setdefault` is the single
+        # source of truth for the timestamp.
         record.setdefault("ts", datetime.now(timezone.utc).isoformat())
         line = json.dumps(record, default=str) + "\n"
         try:
@@ -206,6 +214,13 @@ class ConcurrencyGate:
         AttributeError (e.g. a future Python renames `_value`) —
         falling back to the conservative "treat as full" semantic
         which causes the caller to join the queue rather than race.
+
+        Trade-off: the fallback returns a binary 0/1, not the
+        actual count. For `max_concurrent > 1` callers that want
+        the exact count, this helper is insufficient; we'd need to
+        acquire `self._sem` internally and inspect `_value` under
+        that lock. The current call site only needs a binary
+        "free or not" so the fallback is acceptable.
         """
         try:
             return self._sem._value  # noqa: SLF001
@@ -280,13 +295,18 @@ def make_audit_record(
     error_code: str | None,
     agent_id: str | None = None,
     output_path: str | None = None,
+    input_paths: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Build an audit record dict. Caller writes via `AuditLog.write`."""
+    """Build an audit record dict. Caller writes via `AuditLog.write`.
+
+    `input_paths` is included for `edit_image` (and any future tool
+    with multi-file input) so the audit log captures what the
+    tool acted on, not just what it produced.
+    """
     import hashlib
 
     prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-    return {
-        "ts": datetime.now(timezone.utc).isoformat(),
+    record: dict[str, Any] = {
         "tool": tool,
         "agent_id": agent_id,
         "model": model,
@@ -298,3 +318,10 @@ def make_audit_record(
         "error_code": error_code,
         "output_path": output_path,
     }
+    if input_paths is not None:
+        record["input_paths"] = list(input_paths)
+    # `ts` is intentionally NOT set here. `AuditLog.write`'s
+    # `setdefault` is the single source of truth for the
+    # timestamp — keeps direct-write callers (tests, third-party)
+    # consistent with `make_audit_record` callers.
+    return record

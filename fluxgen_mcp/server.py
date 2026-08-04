@@ -280,6 +280,7 @@ def build_server(settings: MCPSettings) -> MCPServer:
                     error_code=None,
                     agent_id=agent_id,
                     output_path=result.get("path"),
+                    input_paths=result.get("input_paths"),
                 )
             )
             return result

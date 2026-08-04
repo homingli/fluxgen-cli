@@ -196,4 +196,8 @@ async def edit_image_tool(
         "path": output_path,
         "elapsed_s": round(elapsed, 3),
         "model": target_model,
+        # Audit traceability: include the resolved input paths so
+        # the audit log captures both what the tool acted on and
+        # what it produced. Stored as resolved `Path` strings.
+        "input_paths": [str(p) for p in resolved_inputs],
     }

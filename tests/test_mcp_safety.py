@@ -18,13 +18,6 @@ from fluxgen_mcp.errors import (
     E_PROMPT_TOO_LONG,
     MCPError,
 )
-
-
-def _ip(pattern: str) -> re.Pattern[str]:
-    """Compile a case-insensitive pattern, mirroring how
-    `load_mcp_settings` stores blocklist entries.
-    """
-    return re.compile(pattern, flags=re.IGNORECASE)
 from fluxgen_mcp.safety import (
     AuditLog,
     ConcurrencyGate,
@@ -33,6 +26,13 @@ from fluxgen_mcp.safety import (
     resolve_sandbox_output,
     validate_prompt,
 )
+
+
+def _ip(pattern: str) -> re.Pattern[str]:
+    """Compile a case-insensitive pattern, mirroring how
+    `load_mcp_settings` stores blocklist entries.
+    """
+    return re.compile(pattern, flags=re.IGNORECASE)
 
 
 def _settings(**overrides) -> MCPSettings:
