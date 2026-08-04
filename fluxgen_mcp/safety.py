@@ -13,6 +13,7 @@ Everything is synchronous except `ConcurrencyGate.acquire` /
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
 import logging
 import os
@@ -86,9 +87,11 @@ def resolve_sandbox_output(settings: MCPSettings, subdir: str) -> Path:
 def validate_prompt(settings: MCPSettings, prompt: str) -> None:
     """Length + optional regex blocklist check.
 
-    Blocklist matches are case-insensitive. On hit, raises with a
-    generic message (the offending substring is NOT echoed back to
-    the agent so the agent cannot iterate around the filter by
+    Blocklist patterns are precompiled (case-insensitive) at
+    settings-load time, so this function only does the cheap
+    `Pattern.search` per pattern. On hit, raises with a generic
+    message (the offending substring is NOT echoed back to the
+    agent so the agent cannot iterate around the filter by
     scraping its own errors).
     """
     if not isinstance(prompt, str):
@@ -99,16 +102,11 @@ def validate_prompt(settings: MCPSettings, prompt: str) -> None:
             f"prompt exceeds {settings.max_prompt_chars} characters",
         )
     for pattern in settings.prompt_blocklist:
-        try:
-            if re.search(pattern, prompt, flags=re.IGNORECASE):
-                raise MCPError(
-                    E_PROMPT_REJECTED,
-                    "prompt rejected by content filter",
-                )
-        except re.error as exc:
-            # Bad regex in config — log and skip rather than crashing
-            # the server.
-            logger.warning("invalid prompt_blocklist regex %r: %s", pattern, exc)
+        if pattern.search(prompt):
+            raise MCPError(
+                E_PROMPT_REJECTED,
+                "prompt rejected by content filter",
+            )
 
 
 class AuditLog:
@@ -117,7 +115,9 @@ class AuditLog:
     The file is created atomically with mode 0600 via `os.open`
     so there is no window where it is world-readable. Records are
     flushed after every write so a `kill -9` does not lose the last
-    entry.
+    entry. Per-call writes acquire an exclusive `fcntl.flock` so
+    two server processes pointed at the same log file (e.g. during
+    a dev workflow) do not interleave lines.
     """
 
     def __init__(self, path: str):
@@ -136,10 +136,21 @@ class AuditLog:
 
     def write(self, record: dict[str, Any]) -> None:
         record.setdefault("ts", datetime.now(timezone.utc).isoformat())
+        line = json.dumps(record, default=str) + "\n"
         try:
-            with self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record, default=str) + "\n")
-                f.flush()
+            fd = os.open(
+                str(self.path),
+                os.O_WRONLY | os.O_APPEND,
+            )
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                try:
+                    os.write(fd, line.encode("utf-8"))
+                    os.fsync(fd)
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
         except OSError as exc:
             logger.warning("audit log write failed: %s", exc)
 
@@ -177,8 +188,17 @@ class ConcurrencyGate:
 
     async def acquire(self) -> None:
         async with self._lock:
-            if self._sem.locked():
-                # All slots in use → caller would block on sem.acquire
+            # `_sem._value` is a private attribute but stable across
+            # Python 3.8+. Reading it under our lock eliminates the
+            # race between the public `locked()` check and the
+            # subsequent `await sem.acquire()`: any slot release
+            # happens under the semaphore's own internal lock, so
+            # once we observe `_value > 0` here, the slot is ours
+            # to take without becoming a waiter.
+            if self._sem._value > 0:  # noqa: SLF001
+                became_waiter = False
+            else:
+                # All slots in use; caller would block on sem.acquire
                 # and become a queued waiter. Enforce queue depth.
                 if self._waiting >= self._max_queue:
                     raise MCPError(
@@ -187,9 +207,6 @@ class ConcurrencyGate:
                     )
                 self._waiting += 1
                 became_waiter = True
-            else:
-                # Slot is free; caller takes it without queuing.
-                became_waiter = False
 
         try:
             await self._sem.acquire()

@@ -30,10 +30,17 @@ def validate_edit_inputs(
 ) -> list[Path]:
     """Validate image inputs for `edit_image` and `generate_image.init_image_path`.
 
+    Validation order (first failure wins):
+      1. Empty list → `E_BAD_ARG`
+      2. Path missing → `E_INVALID_INPUT_IMAGE`
+      3. Size over `max_bytes` → `E_INPUT_TOO_LARGE`
+      4. PIL integrity (`validate_image_file`) → underlying
+         `InvalidImageError` / `ValueError`; tool layer maps to
+         `E_INVALID_INPUT_IMAGE`.
+      5. Width or height over `max_dimension` → `E_INPUT_TOO_HIGHRES`
+
     For each path:
-      1. Short-circuit on missing path → `E_INVALID_INPUT_IMAGE`
-         (avoids the `FileNotFoundError → E_INTERNAL` reroute through
-         `validate_image_file`).
+      1. Short-circuit on missing path.
       2. Size cap (cheap, before opening the file).
       3. PIL integrity + read size in one pass
          (`validate_image_file(read_size=True)` returns
@@ -51,14 +58,14 @@ def validate_edit_inputs(
         List of resolved `Path` objects.
 
     Raises:
+        MCPError(E_BAD_ARG): `paths` is empty.
         MCPError(E_INVALID_INPUT_IMAGE): path does not exist.
         MCPError(E_INPUT_TOO_LARGE): any path's file size exceeds
             `max_bytes`.
         MCPError(E_INPUT_TOO_HIGHRES): any image's width or height
             exceeds `max_dimension`.
-        FileNotFoundError / ValueError / InvalidImageError: from the
-            underlying validator; the tool layer maps these to
-            `E_INVALID_INPUT_IMAGE`.
+        InvalidImageError: from the underlying validator; the tool
+            layer maps this to `E_INVALID_INPUT_IMAGE`.
     """
     if not paths:
         raise MCPError(E_BAD_ARG, "no input images provided")

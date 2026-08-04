@@ -65,27 +65,29 @@ E_BUSY = "E_BUSY"
 E_INTERNAL = "E_INTERNAL"
 
 
-# Map `fluxgen` and stdlib exceptions to MCP error codes. The MCP
-# wrapper never raises these directly — it catches them in the tool
-# layer and re-raises as `MCPError`.
+# Map `fluxgen` exceptions to MCP error codes. The MCP wrapper
+# catches these in the tool layer and re-raises as `MCPError`.
+#
+# Deliberately scoped to the `fluxgen` exception hierarchy: any
+# `FileNotFoundError` / `ValueError` / `OSError` raised outside of
+# the image validation path is routed through the tool layer's
+# `except (OSError, RuntimeError)` clause (mapped to `E_MODEL`) or
+# the server's catch-all `except Exception` (`E_INTERNAL`). A
+# future caller bypassing `validate_edit_inputs` would otherwise
+# silently misclassify an unrelated `FileNotFoundError` (e.g. a
+# missing config file) as `E_INVALID_INPUT_IMAGE`.
 from fluxgen.exceptions import (  # noqa: E402
     FluxgenError,
-    InvalidImageError,
     InvalidConfigurationError,
-    PathTraversalError,
+    InvalidImageError,
     ModelLoadError,
+    PathTraversalError,
 )
 
 
 EXCEPTION_MAP: dict[type[Exception], str] = {
     PathTraversalError: E_PATH_TRAVERSAL,
     InvalidImageError: E_INVALID_INPUT_IMAGE,
-    # validate_image_file raises these for missing files / corrupt
-    # inputs. Without this entry the server's `except Exception`
-    # catches them and surfaces as E_INTERNAL, masking the real
-    # cause from the agent.
-    FileNotFoundError: E_INVALID_INPUT_IMAGE,
-    ValueError: E_INVALID_INPUT_IMAGE,
     InvalidConfigurationError: E_BAD_ARG,
     ModelLoadError: E_MODEL,
     FluxgenError: E_MODEL,

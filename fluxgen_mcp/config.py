@@ -10,9 +10,11 @@ This module only owns MCP-specific keys. The CLI section is left to
 from __future__ import annotations
 
 import logging
+import re
 import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Pattern
 
 logger = logging.getLogger("fluxgen-mcp")
 
@@ -65,12 +67,16 @@ class MCPSettings:
     per_call_timeout_s: float
     allowed_generation_models: tuple[str, ...]
     allowed_edit_models: tuple[str, ...]
-    prompt_blocklist: tuple[str, ...]
     audit_log_path: str
     pause_sentinel_path: str
     pid_file_path: str
     input_max_bytes: int
     input_max_dimension: int
+    # Patterns are precompiled at config-load time (see
+    # `load_mcp_settings`); the field defaults to an empty tuple so
+    # callers constructing `MCPSettings` directly don't need to
+    # compile.
+    prompt_blocklist: tuple[Pattern[str], ...] = field(default=())
 
     def expand_paths(self) -> "MCPSettings":
         """Return a copy with all path fields expanded and resolved.
@@ -117,8 +123,9 @@ def load_mcp_settings() -> MCPSettings:
     """Load `[mcp]` from `.fluxgen.toml` in cwd and home.
 
     Returns a frozen `MCPSettings` with all keys present. Missing
-    keys fall back to `DEFAULTS`. Returns a fresh instance on every
-    call so callers can mutate via `dataclasses.replace` if needed.
+    keys fall back to `DEFAULTS`. The `prompt_blocklist` patterns
+    are precompiled (case-insensitive) at load time so per-call
+    validation does not pay `re.compile` cost.
     """
     merged: dict = dict(DEFAULTS)
 
@@ -142,5 +149,19 @@ def load_mcp_settings() -> MCPSettings:
         for key, default in DEFAULTS.items():
             if key in section:
                 merged[key] = _coerce(section[key], default)
+
+    # Precompile blocklist patterns. Invalid regex strings are
+    # dropped here (with a warning) so a typo in the config does
+    # not crash the server.
+    raw_patterns: tuple[str, ...] = merged["prompt_blocklist"]
+    compiled: list[Pattern[str]] = []
+    for pattern in raw_patterns:
+        try:
+            compiled.append(re.compile(pattern, flags=re.IGNORECASE))
+        except re.error as exc:
+            logger.warning(
+                "invalid prompt_blocklist regex %r: %s", pattern, exc,
+            )
+    merged["prompt_blocklist"] = tuple(compiled)
 
     return MCPSettings(**merged)

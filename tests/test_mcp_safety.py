@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -141,7 +142,7 @@ def test_validate_prompt_at_limit_is_ok():
 
 
 def test_validate_prompt_blocklist_hit_returns_generic_message():
-    s = _settings(prompt_blocklist=(r"foo",))
+    s = _settings(prompt_blocklist=(re.compile(r"foo", re.IGNORECASE),))
     with pytest.raises(MCPError) as exc:
         validate_prompt(s, "this contains foo bar")
     assert exc.value.code == E_PROMPT_REJECTED
@@ -150,14 +151,18 @@ def test_validate_prompt_blocklist_hit_returns_generic_message():
 
 
 def test_validate_prompt_blocklist_case_insensitive():
-    s = _settings(prompt_blocklist=(r"badword",))
+    s = _settings(prompt_blocklist=(re.compile(r"badword", re.IGNORECASE),))
     with pytest.raises(MCPError):
         validate_prompt(s, "BADWORD appears here")
 
 
 def test_validate_prompt_invalid_blocklist_regex_does_not_crash():
-    # Bad regex in config should log + skip, not crash.
-    s = _settings(prompt_blocklist=(r"[invalid",))
+    # Bad regex in config should be skipped at load time (in
+    # `load_mcp_settings`). Tests that construct `MCPSettings`
+    # directly cannot reproduce the invalid-regex path because
+    # they pass already-compiled patterns; the load-time guard
+    # is verified by `test_load_mcp_settings_drops_invalid_regex`.
+    s = _settings(prompt_blocklist=())
     validate_prompt(s, "anything")  # no raise
 
 
@@ -182,6 +187,46 @@ def test_audit_log_mode_is_0600(tmp_path: Path):
     AuditLog(str(log_path))
     mode = stat_mode(log_path)
     assert mode & 0o777 == 0o600
+
+
+def test_audit_log_writes_under_concurrent_processes(tmp_path: Path):
+    """Two `AuditLog` instances pointed at the same file should not
+    interleave lines. We exercise the `fcntl.flock` path by
+    opening two writers in parallel threads and verifying each
+    record parses as a complete JSON object.
+    """
+    import threading
+
+    log_path = tmp_path / "audit.log"
+    AuditLog(str(log_path))
+
+    n = 50
+    errors: list[Exception] = []
+
+    def writer(idx: int) -> None:
+        try:
+            log = AuditLog(str(log_path))
+            for i in range(n):
+                log.write({"writer": idx, "i": i, "result": "ok"})
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(i,)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+
+    lines = log_path.read_text().splitlines()
+    assert len(lines) == n * 4
+    # Every line must parse as JSON. An interleaved line would
+    # raise here.
+    for line in lines:
+        rec = json.loads(line)
+        assert "writer" in rec
+        assert "i" in rec
 
 
 def stat_mode(path: Path) -> int:

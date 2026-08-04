@@ -202,7 +202,7 @@ All output paths are sandboxed under `output_root`. Models, dimensions, and prom
 ### Install
 
 ```sh
-uv pip install "mcp[cli]>=1.2" "pydantic>=2.7"
+uv pip install "mcp[cli]>=2.0,<3.0" "pydantic>=2.7"
 ```
 
 ### Run

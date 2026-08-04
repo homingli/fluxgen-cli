@@ -23,9 +23,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import atexit
+import dataclasses
 import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -101,6 +103,24 @@ def build_server(settings: MCPSettings) -> MCPServer:
         max_concurrent=settings.max_concurrent_jobs,
         max_queue_depth=settings.max_queue_depth,
     )
+    # On shutdown, sweep any non-main threads we may have spawned
+    # via `asyncio.to_thread` (e.g. the diffusion pipeline). These
+    # threads are NOT cancelled by `asyncio.wait_for` when the
+    # timeout fires — they keep running until the inference call
+    # returns. Under repeated timeouts, zombie threads pile up;
+    # joining them at shutdown reclaims the resources.
+    main_thread = threading.main_thread()
+
+    def join_workers(timeout_s: float = 5.0) -> None:
+        for t in threading.enumerate():
+            if t is main_thread or not t.is_alive():
+                continue
+            t.join(timeout=timeout_s)
+            if t.is_alive():
+                logger.warning(
+                    "worker thread %s did not exit within %ss; abandoning",
+                    t.name, timeout_s,
+                )
 
     server = MCPServer(
         name="fluxgen-mcp",
@@ -334,6 +354,7 @@ def build_server(settings: MCPSettings) -> MCPServer:
 
     # Expose for tests; not part of the public API.
     server._concurrency_gate = gate  # noqa: SLF001
+    server._join_workers = join_workers  # noqa: SLF001
 
     return server
 
@@ -359,21 +380,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _apply_cli_overrides(
     settings: MCPSettings, audit_log_override: str | None
 ) -> MCPSettings:
-    """Reconstruct `MCPSettings` with the `--audit-log` override applied.
+    """Return a copy of `settings` with the `--audit-log` override applied.
 
-    `MCPSettings` is frozen; we cannot assign attributes in place.
-    Building a fresh instance via `dataclasses.replace` (which the
-    constructor path here uses) is the supported mutation route.
+    Uses `dataclasses.replace` rather than constructing a fresh
+    instance from `__dict__`, so adding a new field to `MCPSettings`
+    later doesn't silently drop it here.
     """
     if not audit_log_override:
         return settings
-    return MCPSettings(
-        **{
-            **settings.__dict__,
-            "audit_log_path": str(
-                Path(audit_log_override).expanduser().resolve()
-            ),
-        }
+    return dataclasses.replace(
+        settings,
+        audit_log_path=str(Path(audit_log_override).expanduser().resolve()),
     )
 
 
@@ -400,6 +417,12 @@ def main(argv: list[str] | None = None) -> int:
     atexit.register(_remove_pid_file, pid_path)
 
     server = build_server(settings)
+    # Reap any leaked worker threads (e.g. from timed-out
+    # `asyncio.to_thread` calls) at shutdown. `join_workers` is a
+    # closure over `main_thread` defined inside `build_server`;
+    # atexit runs in LIFO order, so this fires before the PID
+    # cleanup above.
+    atexit.register(server._join_workers)  # noqa: SLF001
 
     logger.info(
         "fluxgen-mcp starting (transport=stdio, sandbox=%s, models=%s)",

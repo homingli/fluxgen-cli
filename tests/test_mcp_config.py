@@ -82,3 +82,49 @@ def test_expand_paths_expands_tilde(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert expanded.audit_log_path == str(tmp_path / "audit.log")
     # Non-path fields unchanged
     assert expanded.max_width == 1
+
+
+def test_load_mcp_settings_precompiles_blocklist(tmp_path, monkeypatch):
+    """Patterns in `.fluxgen.toml` are strings; `load_mcp_settings`
+    must precompile them to `re.Pattern` so `validate_prompt` does
+    not pay `re.compile` per call.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".fluxgen.toml").write_text(
+        textwrap.dedent(
+            """\
+            [mcp]
+            prompt_blocklist = ["foo", "bar"]
+            """
+        )
+    )
+    s = load_mcp_settings()
+    import re
+
+    assert len(s.prompt_blocklist) == 2
+    assert all(isinstance(p, re.Pattern) for p in s.prompt_blocklist)
+    # Pre-compiled patterns are case-insensitive (per config contract).
+    assert any(p.search("FOO") for p in s.prompt_blocklist)
+
+
+def test_load_mcp_settings_drops_invalid_regex(tmp_path, monkeypatch):
+    """A bad regex in `[mcp].prompt_blocklist` must NOT crash config
+    load. `load_mcp_settings` drops it with a warning; the server
+    runs with the surviving patterns.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".fluxgen.toml").write_text(
+        textwrap.dedent(
+            """\
+            [mcp]
+            prompt_blocklist = ["good", "[invalid"]
+            """
+        )
+    )
+    s = load_mcp_settings()
+    # Only the valid pattern survives.
+    assert len(s.prompt_blocklist) == 1
+    assert s.prompt_blocklist[0].search("good")
+    assert not s.prompt_blocklist[0].search("[invalid")

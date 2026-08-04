@@ -45,9 +45,13 @@ def _resolve_seed(seed: int | None) -> int:
 def _edit_filename(inputs: list[Path]) -> str:
     """Filename rule mirroring `fluxgen.cli.handle_edit`.
 
-    Falls back to `generate_random_filename` if `wonderwords` is
-    missing (the CLI's `fluxgen` dep includes it, but the wrapper
-    stays defensive).
+    Falls back to `generate_random_filename` (3 words + timestamp
+    fallback for uniqueness) if `wonderwords` is missing. The
+    wonderwords path uses a single short word which is weaker
+    against collisions under sustained concurrent calls; the
+    fallback is strictly safer. This matches the CLI's behavior
+    verbatim; both should be migrated together if a stricter rule
+    is adopted upstream.
     """
     base = inputs[0].stem or "edit"  # guard against empty stem (e.g. `/.png`)
     try:
@@ -153,6 +157,10 @@ async def edit_image_tool(
         editor = ImageEditor(model_name=target_model)
 
         def _run_edit() -> None:
+            # `_load_pipeline` is idempotent — both
+            # `_load_qwen_pipeline` and `_load_mflux_pipeline` early-
+            # return when their respective pipeline handle is already
+            # populated (fluxgen/editor.py:60, fluxgen/editor.py:105).
             editor._load_pipeline()  # noqa: SLF001 — same pattern as CLI
             editor.edit(
                 image_paths=[str(p) for p in resolved_inputs],
