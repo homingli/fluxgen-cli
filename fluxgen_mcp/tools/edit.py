@@ -42,26 +42,20 @@ def _resolve_seed(seed: int | None) -> int:
     return int(seed)
 
 
-def _edit_filename(inputs: list[Path]) -> str:
-    """Filename rule mirroring `fluxgen.cli.handle_edit`.
+def _edit_filename() -> str:
+    """Filename for an edit output.
 
-    Falls back to `generate_random_filename` (3 words + timestamp
-    fallback for uniqueness) if `wonderwords` is missing. The
-    wonderwords path uses a single short word which is weaker
-    against collisions under sustained concurrent calls; the
-    fallback is strictly safer. This matches the CLI's behavior
-    verbatim; both should be migrated together if a stricter rule
-    is adopted upstream.
+    Uses `fluxgen.generator.generate_random_filename()` which
+    combines a 3-word wonderwords prefix with a millisecond +
+    4-hex-char timestamp fallback to guarantee uniqueness even
+    under sustained concurrent calls. We deliberately do NOT
+    prepend the input stem (the CLI's `handle_edit` does this)
+    because the stem + 1-word wonderwords suffix can collide
+    under load; the safer path is to trust the CLI generator's
+    uniqueness guarantees. Input paths are still preserved in
+    the audit log for traceability.
     """
-    base = inputs[0].stem or "edit"  # guard against empty stem (e.g. `/.png`)
-    try:
-        from wonderwords import RandomWord  # noqa: WPS433 — local import
-
-        rw = RandomWord()
-        suffix = rw.random_words(1, word_max_length=5)[0]
-        return f"{base}_{suffix}.png"
-    except ImportError:
-        return generate_random_filename()
+    return generate_random_filename()
 
 
 def _resolve_steps(steps: int | None, settings: MCPSettings) -> int | None:
@@ -150,7 +144,7 @@ async def edit_image_tool(
     final_seed = _resolve_seed(seed)
 
     output_dir = resolve_sandbox_output(settings, output_subdir)
-    output_path = str(output_dir / _edit_filename(resolved_inputs))
+    output_path = str(output_dir / _edit_filename())
 
     started = time.perf_counter()
     try:

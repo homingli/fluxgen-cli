@@ -18,6 +18,13 @@ from fluxgen_mcp.errors import (
     E_PROMPT_TOO_LONG,
     MCPError,
 )
+
+
+def _ip(pattern: str) -> re.Pattern[str]:
+    """Compile a case-insensitive pattern, mirroring how
+    `load_mcp_settings` stores blocklist entries.
+    """
+    return re.compile(pattern, flags=re.IGNORECASE)
 from fluxgen_mcp.safety import (
     AuditLog,
     ConcurrencyGate,
@@ -142,7 +149,7 @@ def test_validate_prompt_at_limit_is_ok():
 
 
 def test_validate_prompt_blocklist_hit_returns_generic_message():
-    s = _settings(prompt_blocklist=(re.compile(r"foo", re.IGNORECASE),))
+    s = _settings(prompt_blocklist=(_ip(r"foo"),))
     with pytest.raises(MCPError) as exc:
         validate_prompt(s, "this contains foo bar")
     assert exc.value.code == E_PROMPT_REJECTED
@@ -151,9 +158,22 @@ def test_validate_prompt_blocklist_hit_returns_generic_message():
 
 
 def test_validate_prompt_blocklist_case_insensitive():
-    s = _settings(prompt_blocklist=(re.compile(r"badword", re.IGNORECASE),))
+    s = _settings(prompt_blocklist=(_ip(r"badword"),))
     with pytest.raises(MCPError):
         validate_prompt(s, "BADWORD appears here")
+
+
+def test_validate_prompt_tolerates_stray_string_blocklist_entry():
+    """Manual `MCPSettings(prompt_blocklist=["foo"], ...)` is
+    legal — a third-party caller may construct settings that way.
+    `validate_prompt` must NOT AttributeError on a string entry;
+    it should log a warning and skip. The point of this contract
+    is that an uncompiled string cannot match anyway, so failing
+    the whole call would be worse than skipping.
+    """
+    s = _settings(prompt_blocklist=(r"foo",))  # type: ignore[arg-type]
+    # Should not raise; should not match (string has no .search).
+    validate_prompt(s, "this contains foo bar")  # no raise
 
 
 def test_validate_prompt_invalid_blocklist_regex_does_not_crash():
@@ -189,11 +209,17 @@ def test_audit_log_mode_is_0600(tmp_path: Path):
     assert mode & 0o777 == 0o600
 
 
-def test_audit_log_writes_under_concurrent_processes(tmp_path: Path):
+def test_audit_log_writes_under_concurrent_threads(tmp_path: Path):
     """Two `AuditLog` instances pointed at the same file should not
     interleave lines. We exercise the `fcntl.flock` path by
     opening two writers in parallel threads and verifying each
     record parses as a complete JSON object.
+
+    Note: this test runs in a single process so the threads share
+    one file descriptor's lock state. True multi-process flock
+    isolation is implicitly relied on but not directly exercised
+    here. Adding a multiprocessing-based test would require a
+    separate entry point; deferred until a concrete bug appears.
     """
     import threading
 

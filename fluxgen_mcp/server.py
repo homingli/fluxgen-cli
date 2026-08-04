@@ -92,6 +92,35 @@ def _session_agent_id(ctx: Context | None) -> str | None:
         return None
 
 
+def _join_workers(timeout_s: float = 5.0) -> None:
+    """Sweep non-main live threads at shutdown.
+
+    Worker threads spawned by `asyncio.to_thread` (e.g. the
+    diffusion pipeline) are NOT cancelled by `asyncio.wait_for`
+    when the timeout fires — they keep running until the
+    inference call returns. Under repeated timeouts, zombie
+    threads pile up; joining them at shutdown reclaims the
+    resources.
+
+    Resolves `main_thread` lazily so the function is safe to
+    register via `atexit` before any server is constructed
+    (e.g. to handle partial-init failure).
+    """
+    try:
+        main = threading.main_thread()
+    except RuntimeError:
+        main = threading.current_thread()
+    for t in threading.enumerate():
+        if t is main or not t.is_alive():
+            continue
+        t.join(timeout=timeout_s)
+        if t.is_alive():
+            logger.warning(
+                "worker thread %s did not exit within %ss; abandoning",
+                t.name, timeout_s,
+            )
+
+
 def build_server(settings: MCPSettings) -> MCPServer:
     """Construct an `MCPServer` with tools registered.
 
@@ -103,24 +132,6 @@ def build_server(settings: MCPSettings) -> MCPServer:
         max_concurrent=settings.max_concurrent_jobs,
         max_queue_depth=settings.max_queue_depth,
     )
-    # On shutdown, sweep any non-main threads we may have spawned
-    # via `asyncio.to_thread` (e.g. the diffusion pipeline). These
-    # threads are NOT cancelled by `asyncio.wait_for` when the
-    # timeout fires — they keep running until the inference call
-    # returns. Under repeated timeouts, zombie threads pile up;
-    # joining them at shutdown reclaims the resources.
-    main_thread = threading.main_thread()
-
-    def join_workers(timeout_s: float = 5.0) -> None:
-        for t in threading.enumerate():
-            if t is main_thread or not t.is_alive():
-                continue
-            t.join(timeout=timeout_s)
-            if t.is_alive():
-                logger.warning(
-                    "worker thread %s did not exit within %ss; abandoning",
-                    t.name, timeout_s,
-                )
 
     server = MCPServer(
         name="fluxgen-mcp",
@@ -354,7 +365,6 @@ def build_server(settings: MCPSettings) -> MCPServer:
 
     # Expose for tests; not part of the public API.
     server._concurrency_gate = gate  # noqa: SLF001
-    server._join_workers = join_workers  # noqa: SLF001
 
     return server
 
@@ -415,14 +425,13 @@ def main(argv: list[str] | None = None) -> int:
     # handlers because logging + signal.signal from inside a handler
     # is not async-signal-safe and can deadlock on stdio writes.
     atexit.register(_remove_pid_file, pid_path)
+    # Reap leaked worker threads (timed-out `asyncio.to_thread`
+    # workers, mostly) at shutdown. Registered before `build_server`
+    # so partial-init failures still trigger the cleanup. Uses the
+    # module-level `_join_workers` so there's no dangling closure.
+    atexit.register(_join_workers)
 
     server = build_server(settings)
-    # Reap any leaked worker threads (e.g. from timed-out
-    # `asyncio.to_thread` calls) at shutdown. `join_workers` is a
-    # closure over `main_thread` defined inside `build_server`;
-    # atexit runs in LIFO order, so this fires before the PID
-    # cleanup above.
-    atexit.register(server._join_workers)  # noqa: SLF001
 
     logger.info(
         "fluxgen-mcp starting (transport=stdio, sandbox=%s, models=%s)",

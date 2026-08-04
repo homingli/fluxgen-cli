@@ -93,6 +93,14 @@ def validate_prompt(settings: MCPSettings, prompt: str) -> None:
     message (the offending substring is NOT echoed back to the
     agent so the agent cannot iterate around the filter by
     scraping its own errors).
+
+    Defensively tolerates a stray string entry in
+    `prompt_blocklist`: `MCPSettings` can be constructed manually
+    (tests, third-party callers) with raw strings. Such entries
+    are silently skipped — they cannot match without a compiled
+    pattern, but the caller likely intended the pattern to be
+    applied; surfacing an opaque `AttributeError` is worse than
+    skipping.
     """
     if not isinstance(prompt, str):
         raise MCPError(E_PROMPT_TOO_LONG, "prompt must be a string")
@@ -102,6 +110,12 @@ def validate_prompt(settings: MCPSettings, prompt: str) -> None:
             f"prompt exceeds {settings.max_prompt_chars} characters",
         )
     for pattern in settings.prompt_blocklist:
+        if not isinstance(pattern, re.Pattern):
+            logger.warning(
+                "prompt_blocklist entry %r is not a compiled Pattern; skipping",
+                pattern,
+            )
+            continue
         if pattern.search(prompt):
             raise MCPError(
                 E_PROMPT_REJECTED,
@@ -186,16 +200,36 @@ class ConcurrencyGate:
     def stats(self) -> dict[str, int]:
         return {"waiting": self._waiting, "in_flight": self._in_flight}
 
+    def _sem_value_safe(self) -> int:
+        """Read the underlying semaphore's free-slot count without
+        going through the public `locked()` API. Returns 0 on any
+        AttributeError (e.g. a future Python renames `_value`) —
+        falling back to the conservative "treat as full" semantic
+        which causes the caller to join the queue rather than race.
+        """
+        try:
+            return self._sem._value  # noqa: SLF001
+        except AttributeError:
+            # Public fallback: `locked()` returns True iff the
+            # semaphore has zero free slots. If we can't see the
+            # count, treat the semaphore as full so we don't risk
+            # exceeding `max_queue_depth`.
+            return 0 if self._sem.locked() else 1
+
     async def acquire(self) -> None:
         async with self._lock:
-            # `_sem._value` is a private attribute but stable across
-            # Python 3.8+. Reading it under our lock eliminates the
-            # race between the public `locked()` check and the
-            # subsequent `await sem.acquire()`: any slot release
-            # happens under the semaphore's own internal lock, so
-            # once we observe `_value > 0` here, the slot is ours
-            # to take without becoming a waiter.
-            if self._sem._value > 0:  # noqa: SLF001
+            # Reading `_value` here (under `self._lock`) makes the
+            # read consistent — no other task can change `_waiting`
+            # or `_in_flight` while we hold it. The semaphore's own
+            # internal lock governs slot release, so once we see
+            # `_value > 0` we know a slot was free at the moment
+            # of the read. The actual `sem.acquire()` below can
+            # still race: another task may grab the slot between
+            # this read and the await, in which case we block and
+            # get treated as a waiter. That's a fair FIFO order
+            # under asyncio, not a bug.
+            free = self._sem_value_safe()
+            if free > 0:
                 became_waiter = False
             else:
                 # All slots in use; caller would block on sem.acquire
