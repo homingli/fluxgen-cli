@@ -216,6 +216,9 @@ def get_parser(config, version, interactive=False):
     return parser
 
 
+_cached_version: str | None = None
+
+
 def _get_version() -> str:
     """Resolve the fluxgen-cli version. Cached after first call.
 
@@ -244,9 +247,6 @@ def _get_version() -> str:
 
     _cached_version = "unknown"
     return _cached_version
-
-
-_cached_version: str | None = None
 
 
 def main(argv=None):
