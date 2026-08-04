@@ -117,28 +117,35 @@ class ImageEditor:
     ) -> tuple[list[Path], tuple[int, int]]:
         """Resolve input paths, verify file integrity, and read the first image's size.
 
-        Each path is opened once for existence + `verify()` integrity check.
-        The first image's `.size` is captured in the same open: the header is
-        read lazily by `Image.open()`, so `.size` is a free lookup before
-        `verify()` walks the file. Subsequent images only need the integrity
-        check (no size read).
+        Delegates each path's existence + ``is_file()`` + PIL integrity
+        check to ``fluxgen.image_validation.validate_image_file`` (with
+        ``label="input image"`` so error messages keep the pre-refactor
+        "Input image not found" wording).
 
-        Precondition: `image_paths` must be non-empty. argparse's `nargs="+"`
-        guarantees this for the CLI path; calling with `[]` raises
-        `ValueError` explicitly.
+        The validator opens each file exactly once: it reads ``.size``
+        for the first image and runs ``Image.verify()`` inside the same
+        ``Image.open()`` block. The first image's file handle and pixel
+        cache are invalidated after this call, so the **edit pipeline
+        reopens the first file at edit() line ~219 for the RGB
+        conversion** — that's expected, not a duplication bug.
+
+        Precondition: ``image_paths`` must be non-empty. argparse's
+        ``nargs="+"`` guarantees this for the CLI path; calling with
+        ``[]`` raises ``ValueError`` explicitly.
 
         Returns:
-            (resolved_paths, first_image_size) where `first_image_size` is
-            the `(width, height)` of `image_paths[0]`.
+            ``(resolved_paths, first_image_size)`` where
+            ``first_image_size`` is the ``(width, height)`` of
+            ``image_paths[0]``.
 
         Raises:
-            ValueError: `image_paths` is empty, or a path points at a
+            ValueError: ``image_paths`` is empty, or a path points at a
                 directory rather than a file.
             FileNotFoundError: a path does not exist.
-            InvalidImageError: a file is unreadable or fails integrity check.
+            InvalidImageError: a file is unreadable or fails integrity
+                check.
         """
-        from fluxgen.exceptions import InvalidImageError
-        from PIL import UnidentifiedImageError
+        from fluxgen.image_validation import validate_image_file
 
         if not image_paths:
             raise ValueError("image_paths must be non-empty")
@@ -147,27 +154,15 @@ class ImageEditor:
         first_size: tuple[int, int] | None = None
 
         for idx, path in enumerate(image_paths):
-            input_path = Path(path).expanduser().resolve()
-            if not input_path.exists():
-                raise FileNotFoundError(f"Input image not found: {input_path}")
-            if not input_path.is_file():
-                raise ValueError(f"Input image must be a file: {input_path}")
-
-            try:
-                with Image.open(input_path) as img:
-                    if idx == 0:
-                        first_size = img.size
-                    img.verify()
-            except UnidentifiedImageError:
-                raise InvalidImageError(
-                    f"Invalid or corrupted image file: {input_path}"
+            read_size = idx == 0
+            if read_size:
+                resolved, size = validate_image_file(
+                    path, read_size=True, label="input image"
                 )
-            except Exception as e:
-                raise InvalidImageError(
-                    f"Could not verify image file {input_path}: {e}"
-                )
-
-            resolved_paths.append(input_path)
+                first_size = size
+            else:
+                resolved = validate_image_file(path, label="input image")
+            resolved_paths.append(resolved)
 
         # Guaranteed by the empty-list guard above + the `if idx == 0` branch.
         assert first_size is not None

@@ -5,7 +5,6 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
-from PIL import Image
 
 from mflux.models.common.config import ModelConfig
 from fluxgen.styling import StyleManager
@@ -171,22 +170,11 @@ def generate_image(
         raise ValueError(f"strength must be between 0.0 and 1.0, got {strength}")
 
     if init_image is not None:
-        from fluxgen.exceptions import InvalidImageError
-        from PIL import UnidentifiedImageError
-
-        init_path = Path(init_image).expanduser().resolve()
-        if not init_path.exists():
-            raise FileNotFoundError(f"Reference image not found: {init_path}")
-        if not init_path.is_file():
-            raise ValueError(f"Reference image must be a file: {init_path}")
-            
-        try:
-            with Image.open(init_path) as img:
-                img.verify()
-        except UnidentifiedImageError:
-            raise InvalidImageError(f"Invalid or corrupted image file: {init_path}")
-        except Exception as e:
-            raise InvalidImageError(f"Could not verify image file {init_path}: {e}")
+        from fluxgen.image_validation import validate_image_file
+        # `validate_image_file` expands `~` and resolves symlinks/relative
+        # components. Capture the resolved Path so the model receives
+        # the canonical path rather than the raw CLI string.
+        init_image = validate_image_file(init_image, label="reference image")
 
     # Resolve model-specific defaults
     defaults = MODEL_DEFAULTS.get(model_name.lower(), MODEL_DEFAULTS[DEFAULT_MODEL])
