@@ -190,6 +190,72 @@ A local configuration in the current directory will automatically take precedenc
 
 ---
 
+## MCP Server (AI Agent Integration)
+
+`fluxgen-mcp` exposes image generation and editing to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io/) (stdio transport). The agent sees two tools:
+
+- `generate_image` — text-to-image with optional image-to-image init
+- `edit_image` — instruction-based editing (flux2-klein: multi-image; qwen-image-edit: single-image)
+
+All output paths are sandboxed under `output_root`. Models, dimensions, and prompt lengths are bounded by `.fluxgen.toml`. Every call writes a JSONL audit record (mode `0600`) including the full prompt and a SHA-256 of it. Prompt blocklist is opt-in (default empty).
+
+### Install
+
+```sh
+uv pip install "mcp[cli]>=1.2" "pydantic>=2.7"
+```
+
+### Run
+
+```sh
+fluxgen-mcp --print-config     # show resolved settings and exit
+fluxgen-mcp                    # stdio server, blocks until killed
+```
+
+### Wire into an MCP client
+
+Add to `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "fluxgen": {
+      "command": "fluxgen-mcp",
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+### Optional `[mcp]` block in `.fluxgen.toml`
+
+```toml
+[mcp]
+output_root = "~/fluxgen-mcp-output"
+max_width = 1920
+max_height = 1920
+max_steps = 50
+max_prompt_chars = 2000
+max_concurrent_jobs = 1
+max_queue_depth = 4
+per_call_timeout_s = 600
+allowed_generation_models = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
+allowed_edit_models = ["flux2-klein", "qwen-image-edit"]
+prompt_blocklist = []
+audit_log_path = "~/.fluxgen-mcp-audit.log"
+pause_sentinel_path = "~/.fluxgen-mcp-paused"
+pid_file_path = "~/.fluxgen-mcp.pid"
+input_max_bytes = 20971520        # 20 MB
+input_max_dimension = 1080        # tighten from 1920 output cap
+```
+
+### Kill switches
+
+- **Pause:** `touch ~/.fluxgen-mcp-paused` — server rejects new calls with `E_DISABLED` but stays running. Remove the file to resume.
+- **Hard stop:** send `SIGTERM` (or `SIGINT`) to the PID in `~/.fluxgen-mcp.pid`.
+
+---
+
 ## Project Docs
 
 - [Architecture](ARCHITECTURE.md)
