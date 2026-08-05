@@ -164,11 +164,11 @@ def handle_interactive(config, version):
             silent = getattr(args, "silent", False)
             verbose = getattr(args, "verbose", False)
             level, fmt = resolve_log_level_and_fmt(verbose, silent)
-            # Defensive guard: ``setup_logging`` is normally called by
-            # ``main()`` before the REPL starts, so a handler is
-            # installed. If a future entry path changes that, we
-            # install one here rather than crashing on an
-            # ``IndexError`` below.
+            # ``setup_logging`` was already called once by ``main()``
+            # before the REPL started, so a handler is installed. The
+            # defensive reinstall below only fires if a future entry
+            # path bypasses ``main()``; in the common case this is just
+            # a re-aim at the current command's verbosity.
             if not logger.handlers:
                 setup_logging(verbose=verbose, silent=silent)
             handler = logger.handlers[0]
@@ -176,10 +176,6 @@ def handle_interactive(config, version):
             handler.setFormatter(logging.Formatter(fmt))
             logger.setLevel(level)
 
-            # ``setup_logging`` was already called once by ``main()``
-            # before the REPL started, so a handler is installed. Here
-            # we just re-aim it for the current command's verbosity
-            # rather than installing a new handler.
             with suppress_external_output(silent):
                 if args.command in ["generate", "gen"]:
                     handle_generate(args, config, interactive=True)

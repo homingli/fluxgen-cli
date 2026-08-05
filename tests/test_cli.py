@@ -65,9 +65,7 @@ def test_edit_default_output_uses_random_filename(tmp_path):
     )
 
     with patch("wonderwords.RandomWord") as mock_random_word_cls, \
-         patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
-         patch("PIL.Image.open") as mock_image_open:
-        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+         patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
         mock_random_word_cls.return_value.random_words.side_effect = [["red"], ["blue"]]
         editor = mock_editor_cls.return_value
 
@@ -528,7 +526,54 @@ def test_fluxgen_package_exposes_version():
     # a non-empty string and that it parses as a SemVer-ish tuple.
     assert isinstance(fluxgen.__version__, str)
     assert fluxgen.__version__, "fluxgen.__version__ must not be empty"
-    assert fluxgen.__version__ != "0.3.3-source" or True  # fallback path
+    # The fallback path is covered separately by
+    # test_fluxgen_package_version_falls_back_without_metadata.
+
+
+def test_fluxgen_fallback_literal_matches_pyproject():
+    """The hard-coded fallback in ``fluxgen/__init__.py`` must match
+    ``[project] version`` in pyproject.toml so source-only checkouts
+    (where importlib.metadata can't find the package) report the same
+    version as an installed venv. Locking the literal here catches the
+    next ``pyproject.toml`` bump that forgot to update the fallback.
+    """
+    import fluxgen
+    import tomllib
+
+    # Extract the fallback literal from fluxgen/__init__.py by reading
+    # the `except PackageNotFoundError` branch.
+    fluxgen_init = Path(__file__).parent.parent / "fluxgen" / "__init__.py"
+    fallback_literal = None
+    in_fallback_branch = False
+    for raw_line in fluxgen_init.read_text().splitlines():
+        if "except PackageNotFoundError" in raw_line:
+            in_fallback_branch = True
+            continue
+        if in_fallback_branch and "__version__ =" in raw_line:
+            # Match patterns like ``__version__ = "0.3.3"`` (single
+            # or double quotes; strip both).
+            quote = raw_line.split('"')[1] if '"' in raw_line else raw_line.split("'")[1]
+            fallback_literal = quote
+            break
+
+    assert fallback_literal is not None, (
+        "Could not find a `__version__ = \"...\"` assignment after "
+        "an `except PackageNotFoundError:` in fluxgen/__init__.py. "
+        "The fallback literal structure changed; update this test."
+    )
+
+    pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+    with pyproject_path.open("rb") as f:
+        pyproject_version = tomllib.load(f)["project"]["version"]
+
+    assert fallback_literal == pyproject_version, (
+        f"fluxgen/__init__.py fallback {fallback_literal!r} does not match "
+        f"pyproject.toml [project] version {pyproject_version!r}. "
+        f"Update the literal in fluxgen/__init__.py to match pyproject.toml."
+    )
+    # Sanity: the runtime __version__ should also match (assuming the
+    # venv is installed; if the fallback fired, it'd match the literal).
+    assert fluxgen.__version__ == pyproject_version
 
 
 def test_fluxgen_package_version_falls_back_without_metadata(monkeypatch):
@@ -586,9 +631,7 @@ def test_handle_edit_passes_max_dimension_from_config(tmp_path):
 
     config = {"defaults": {"max_edit_dimension": 1024}}
 
-    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
-         patch("PIL.Image.open") as mock_image_open:
-        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
         editor = mock_editor_cls.return_value
         cli.handle_edit(args, config=config)
 
@@ -618,9 +661,7 @@ def test_handle_edit_default_max_dimension_when_no_config(tmp_path):
         height=None,
     )
 
-    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
-         patch("PIL.Image.open") as mock_image_open:
-        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
         editor = mock_editor_cls.return_value
         cli.handle_edit(args)  # no config
 
@@ -658,9 +699,7 @@ def test_handle_edit_invalid_max_dimension_falls_back(tmp_path, caplog):
 
     for bad in bad_configs:
         with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
-             patch("PIL.Image.open") as mock_image_open, \
              caplog.at_level(_logging.WARNING, logger="fluxgen"):
-            mock_image_open.return_value.__enter__.return_value.size = (512, 512)
             editor = mock_editor_cls.return_value
             cli.handle_edit(args, config=bad)
 
@@ -690,9 +729,7 @@ def test_handle_edit_threads_true_cfg_scale(tmp_path):
         height=None,
     )
 
-    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
-         patch("PIL.Image.open") as mock_image_open:
-        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
         editor = mock_editor_cls.return_value
         cli.handle_edit(args)
 

@@ -273,6 +273,7 @@ __all__ = [
     "_cached_version",
     "_get_version",
     "add_verbosity_flags",
+    "distribution",
     "get_parser",
     "handle_edit",
     "handle_generate",

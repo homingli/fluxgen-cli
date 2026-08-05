@@ -376,6 +376,17 @@ def handle_edit(args, config=None, interactive=False):
     full config dict.
     """
     with error_handler(args, interactive):
+        # ``ImageEditor`` is imported lazily here rather than at the
+        # top of the module. ``fluxgen.editor`` is already loaded by
+        # the time we reach this function (EDIT_DEFAULT_TRUE_CFG and
+        # MAX_EDIT_DIMENSION are top-level imports), so the lazy
+        # import isn't about deferred loading — it's about test
+        # isolation: tests patch ``fluxgen.editor.ImageEditor`` via
+        # ``with patch(...)`` and the lazy import resolves through
+        # the module attribute at call time, picking up the mock.
+        # A top-level ``from fluxgen.editor import ImageEditor``
+        # would capture the real class at module load time and the
+        # patch wouldn't take effect.
         from fluxgen.editor import ImageEditor
 
         # Resolve max_dimension from config, falling back to the
@@ -413,7 +424,9 @@ def handle_edit(args, config=None, interactive=False):
                 random_word = rw.random_words(1, word_max_length=5)[0]
                 return f"{base_name}_{random_word}.png"
             except ImportError:
-                from fluxgen.generator import generate_random_filename
+                # ``generate_random_filename`` is imported at the top
+                # of this module — use that reference in the
+                # wonderwords-missing fallback rather than re-importing.
                 return generate_random_filename()
 
         output_path = resolve_output_path(args.output, args.output_dir, generate_edit_filename)
