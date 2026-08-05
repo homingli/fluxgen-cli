@@ -13,9 +13,39 @@ def load_cli_without_mflux():
     fake_generator.SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
     fake_generator.DEFAULT_MODEL = "zimage-turbo"
 
+    # Ensure ``fluxgen.cli`` is loaded at least once so we have a
+    # module object to reload in place. ``reload`` updates an
+    # existing module's ``__dict__`` rather than creating a new
+    # object, so ``cli.handle_generate.__globals__`` stays in sync
+    # with ``sys.modules['fluxgen.cli.commands']`` and patches like
+    # ``patch('fluxgen.cli.commands.generate_image')`` take effect.
+    # Without ``reload``, ``patch.dict`` cleanup would drop the
+    # submodules from ``sys.modules`` and any subsequent
+    # ``patch('fluxgen.cli.commands.X')`` would import a *second*
+    # fresh module object that the test's already-bound
+    # ``cli.handle_generate`` no longer references.
+    if "fluxgen.cli" not in sys.modules:
+        importlib.import_module("fluxgen.cli")
+    if "fluxgen.cli.commands" not in sys.modules:
+        importlib.import_module("fluxgen.cli.commands")
+    if "fluxgen.cli.presets_arg" not in sys.modules:
+        importlib.import_module("fluxgen.cli.presets_arg")
+    if "fluxgen.cli.interactive" not in sys.modules:
+        importlib.import_module("fluxgen.cli.interactive")
+
     with patch.dict(sys.modules, {"fluxgen.generator": fake_generator}):
-        sys.modules.pop("fluxgen.cli", None)
-        return importlib.import_module("fluxgen.cli")
+        # Reload the CLI submodules so their top-level
+        # ``from fluxgen.generator import generate_image, …``
+        # rebinds to the fakes now in ``sys.modules``. ``reload``
+        # mutates the existing module's ``__dict__`` in place, so
+        # any already-imported references (e.g. ``cli.handle_generate``
+        # pointing at this module's ``__globals__``) stay valid.
+        importlib.reload(sys.modules["fluxgen.cli.commands"])
+        importlib.reload(sys.modules["fluxgen.cli.presets_arg"])
+        importlib.reload(sys.modules["fluxgen.cli.interactive"])
+        importlib.reload(sys.modules["fluxgen.cli"])
+
+    return sys.modules["fluxgen.cli"]
 
 
 def test_edit_default_output_uses_random_filename(tmp_path):

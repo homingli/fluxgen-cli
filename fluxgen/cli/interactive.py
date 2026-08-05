@@ -16,20 +16,32 @@ That changes three things relative to the one-shot CLI path:
 - :class:`ParserExit` and :class:`InteractiveParser` are exported
   for test fixtures that want to drive the REPL programmatically.
 
-This module deliberately imports the rest of the CLI lazily — see
-``handle_interactive`` — to break the
-``cli/__init__.py`` <-> ``cli/interactive.py`` import cycle that
-would otherwise form (``__init__`` builds the parser, the REPL
-needs the parser, the REPL is re-exported from ``__init__``).
+``handle_interactive`` does its CLI-package imports lazily (see the
+function body) so this module is cheap to import on its own and so
+that any future top-level dependency the REPL takes on
+``fluxgen.cli`` doesn't form a load-time cycle. There's no cycle
+today — ``__init__.py`` only re-exports ``handle_interactive`` from
+this module, and this module's top-level imports go one way
+(``presets_arg`` only) — but deferring keeps that property stable
+and also avoids pulling ``argparse`` / ``sys`` work into the
+parser-build path that ``--help`` and ``--version`` already pay
+for.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import shlex
 import sys
 
 from fluxgen.cli.presets_arg import COMMANDS
+
+
+# Tokens that exit the REPL. Module-level constant so the comparison
+# is one hash-lookup per keystroke instead of re-allocating a list
+# every iteration.
+_EXIT_TOKENS = frozenset({"exit", "quit"})
 
 
 logger = logging.getLogger("fluxgen")
@@ -105,15 +117,14 @@ def handle_interactive(config, version):
     so the version cache survives the REPL process lifetime and
     matches the ``--version`` output from a non-REPL invocation.
     """
-    # Imported lazily to avoid the cli/__init__.py <-> interactive.py
-    # import cycle: __init__ imports handle_interactive, and
-    # handle_interactive needs ``get_parser`` and
-    # ``suppress_external_output`` from __init__. By deferring the
-    # import to call time we let __init__ finish defining everything
-    # before we touch it.
-    from fluxgen.cli import get_parser, suppress_external_output
-    from fluxgen.cli.presets_arg import _resolve_log_level_and_fmt
+    # Imported lazily so the REPL module stays cheap to import on its
+    # own and so the load-time cycle stays one-way (see module
+    # docstring). Deferring also keeps the parser-build and import
+    # surface clean: ``get_parser`` is only needed once the user has
+    # actually entered the REPL.
+    from fluxgen.cli import get_parser, setup_logging, suppress_external_output
     from fluxgen.cli.commands import handle_edit, handle_generate
+    from fluxgen.cli.presets_arg import resolve_log_level_and_fmt
 
     try:
         import readline  # noqa: F401  -- imported for side effect of enabling line editing / history
@@ -131,10 +142,9 @@ def handle_interactive(config, version):
             cmd = input("\nfluxgen> ").strip()
             if not cmd:
                 continue
-            if cmd.lower() in ["exit", "quit"]:
+            if cmd.lower() in _EXIT_TOKENS:
                 break
 
-            import shlex
             argv = shlex.split(cmd)
             if not argv:
                 continue
@@ -153,10 +163,17 @@ def handle_interactive(config, version):
 
             silent = getattr(args, "silent", False)
             verbose = getattr(args, "verbose", False)
-            level, fmt = _resolve_log_level_and_fmt(verbose, silent)
-            if logger.handlers:
-                logger.handlers[0].setLevel(level)
-                logger.handlers[0].setFormatter(logging.Formatter(fmt))
+            level, fmt = resolve_log_level_and_fmt(verbose, silent)
+            # Defensive guard: ``setup_logging`` is normally called by
+            # ``main()`` before the REPL starts, so a handler is
+            # installed. If a future entry path changes that, we
+            # install one here rather than crashing on an
+            # ``IndexError`` below.
+            if not logger.handlers:
+                setup_logging(verbose=verbose, silent=silent)
+            handler = logger.handlers[0]
+            handler.setLevel(level)
+            handler.setFormatter(logging.Formatter(fmt))
             logger.setLevel(level)
 
             # ``setup_logging`` was already called once by ``main()``

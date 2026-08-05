@@ -18,7 +18,6 @@ it actually needs.
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
 import time
@@ -32,6 +31,7 @@ from fluxgen.exceptions import FluxgenError, PathTraversalError
 from fluxgen.generator import (
     DEFAULT_MODEL,
     SUPPORTED_MODELS,
+    ModelManager,
     generate_image,
     generate_random_filename,
 )
@@ -40,7 +40,6 @@ from fluxgen.presets import ALL_RESOLUTION_PRESETS, PRESETS, PRESETS_BY_NAME
 from fluxgen.cli.presets_arg import (
     add_preset_args,
     add_resolution_args,
-    add_verbosity_flags,
 )
 
 logger = logging.getLogger("fluxgen")
@@ -75,11 +74,11 @@ def resolve_image_dimensions(args, config) -> tuple[int, int]:
 
     The function reads attribute presence via ``getattr(..., None)``
     rather than truthy checks because ``0`` is a legal (if silly)
-    width but would short-circuit a ``hasattr`` check that compared
-    against ``None``. argparse stores ``None`` (via
-    ``argparse.SUPPRESS``) when the user didn't pass the flag, so
-    ``is None`` reliably distinguishes "user passed nothing" from
-    "user passed an integer".
+    width. argparse uses ``argparse.SUPPRESS`` as the default for
+    these flags, which omits the attribute entirely from the parsed
+    namespace; ``getattr(..., None)`` then resolves to ``None`` for
+    "user passed nothing" while preserving an explicit ``0`` as
+    ``0``.
     """
     cli_resolution = getattr(args, "resolution", None)
     cli_width = getattr(args, "width", None)
@@ -89,24 +88,9 @@ def resolve_image_dimensions(args, config) -> tuple[int, int]:
 
     if cli_width is not None or cli_height is not None:
         # Explicit per-axis CLI flag wins. Missing axis falls through
-        # the rest of the chain (resolution > config > default).
-        if cli_width is not None:
-            width = cli_width
-        elif cli_resolution is not None:
-            width = ALL_RESOLUTION_PRESETS[cli_resolution][0]
-        elif config_width is not None:
-            width = config_width
-        else:
-            width = _DEFAULT_DIMENSION
-
-        if cli_height is not None:
-            height = cli_height
-        elif cli_resolution is not None:
-            height = ALL_RESOLUTION_PRESETS[cli_resolution][1]
-        elif config_height is not None:
-            height = config_height
-        else:
-            height = _DEFAULT_DIMENSION
+        # the rest of the chain via _resolve_axis.
+        width = _resolve_axis(cli_width, cli_resolution, config_width, axis=0)
+        height = _resolve_axis(cli_height, cli_resolution, config_height, axis=1)
     elif cli_resolution is not None:
         # Explicit --resolution overrides config (no CLI w/h set).
         width, height = ALL_RESOLUTION_PRESETS[cli_resolution]
@@ -116,6 +100,24 @@ def resolve_image_dimensions(args, config) -> tuple[int, int]:
         height = config_height if config_height is not None else _DEFAULT_DIMENSION
 
     return width, height
+
+
+def _resolve_axis(cli_value, cli_resolution, config_value, *, axis):
+    """Resolve a single axis (width or height) through the priority chain.
+
+    Shared by both axes inside :func:`resolve_image_dimensions` when an
+    explicit per-axis CLI flag was passed for at least one axis; the
+    missing axis falls through the same chain independently. ``axis``
+    is the index into the resolution preset tuple (``0`` for width,
+    ``1`` for height).
+    """
+    if cli_value is not None:
+        return cli_value
+    if cli_resolution is not None:
+        return ALL_RESOLUTION_PRESETS[cli_resolution][axis]
+    if config_value is not None:
+        return config_value
+    return _DEFAULT_DIMENSION
 
 
 # ── Subparser builders ─────────────────────────────────────────────────────
@@ -336,7 +338,6 @@ def handle_generate(args, config, interactive=False):
         width, height = resolve_image_dimensions(args, config)
 
         # Pre-load model before timer starts
-        from fluxgen.generator import ModelManager
         preloaded_model = ModelManager.get_model(
             model_name=args.model,
             quantize=preset.get("quantize"),

@@ -1,6 +1,7 @@
 """fluxgen.cli — top-level CLI entry point.
 
-Package layout (introduced when ``cli.py`` exceeded ~480 lines):
+Package layout (introduced when the monolithic ``cli.py`` was split
+during a cleanup pass):
 
 - :mod:`fluxgen.cli.presets_arg` — token-shape constants, argv
   normalization, and the small argparse builders (``add_verbosity_flags``,
@@ -44,6 +45,8 @@ except ImportError:
     from importlib_metadata import distribution  # Python < 3.8 fallback
 
 from fluxgen.cli.commands import (
+    add_edit_parser,
+    add_generate_parser,
     handle_edit,
     handle_generate,
 )
@@ -52,8 +55,8 @@ from fluxgen.cli.presets_arg import (
     COMMANDS,
     GLOBAL_FLAGS,
     PASSTHROUGH_FLAGS,
-    _resolve_log_level_and_fmt,
     add_verbosity_flags,
+    resolve_log_level_and_fmt,
     with_default_command,
 )
 from fluxgen.config import load_config
@@ -77,7 +80,7 @@ def setup_logging(verbose=False, silent=False):
     The level/format mapping lives in
     :func:`fluxgen.cli.presets_arg._resolve_log_level_and_fmt`.
     """
-    level, fmt = _resolve_log_level_and_fmt(verbose, silent)
+    level, fmt = resolve_log_level_and_fmt(verbose, silent)
     handler = logging.StreamHandler()
     handler.setLevel(level)
     handler.setFormatter(logging.Formatter(fmt))
@@ -191,12 +194,10 @@ def get_parser(config, version, interactive=False):
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Lazy import to keep `get_parser` decoupled from the heavy
-    # `commands` module's transitive imports (mflux, diffusers).
-    # The subparser builders themselves only touch argparse and
-    # `fluxgen.config` / `fluxgen.presets`, so this stays cheap.
-    from fluxgen.cli.commands import add_edit_parser, add_generate_parser
-
+    # The subparser builders only touch argparse + `fluxgen.config` /
+    # `fluxgen.presets`, so calling them here stays cheap — no model
+    # loaders or diffusers are pulled in until the user actually
+    # runs a subcommand.
     add_generate_parser(subparsers, verbosity_parent, config)
     add_edit_parser(subparsers, verbosity_parent, config)
 
@@ -271,7 +272,6 @@ __all__ = [
     "PASSTHROUGH_FLAGS",
     "_cached_version",
     "_get_version",
-    "_resolve_log_level_and_fmt",
     "add_verbosity_flags",
     "get_parser",
     "handle_edit",
@@ -279,6 +279,7 @@ __all__ = [
     "handle_interactive",
     "load_config",
     "main",
+    "resolve_log_level_and_fmt",
     "setup_logging",
     "suppress_external_output",
     "with_default_command",

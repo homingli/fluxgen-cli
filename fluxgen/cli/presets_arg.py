@@ -17,7 +17,7 @@ Scope:
 - ``add_verbosity_flags`` / ``add_preset_args`` / ``add_resolution_args``:
   reusable argparse builders shared by the ``generate`` and ``edit``
   subparsers.
-- ``_resolve_log_level_and_fmt``: maps a ``(verbose, silent)`` pair
+- ``resolve_log_level_and_fmt``: maps a ``(verbose, silent)`` pair
   (the parsed values of the verbosity flags) to a logging level +
   format string. Used by ``setup_logging`` (in ``cli/__init__.py``)
   and by the REPL's per-command log reconfiguration.
@@ -161,7 +161,7 @@ def add_resolution_args(parser):
 # ── logging level/format mapping ────────────────────────────────────────────
 
 
-def _resolve_log_level_and_fmt(verbose, silent):
+def resolve_log_level_and_fmt(verbose, silent):
     """Map a ``(verbose, silent)`` flag pair to ``(logging level, format)``.
 
     Verbose wins over silent when both are set — but in practice
