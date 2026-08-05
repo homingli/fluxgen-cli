@@ -174,7 +174,7 @@ def test_handle_generate_resolution_tiny_dimensions():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -200,7 +200,7 @@ def test_handle_generate_resolution_large_dimensions():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -226,7 +226,7 @@ def test_handle_generate_resolution_aspect_ratio():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -252,7 +252,7 @@ def test_handle_generate_width_height_overrides_resolution():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -283,7 +283,7 @@ def test_handle_generate_config_override_resolution():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -310,7 +310,7 @@ def test_handle_generate_resolution_overrides_config():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -338,7 +338,7 @@ def test_handle_generate_partial_width_falls_back_to_config():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -366,7 +366,7 @@ def test_handle_generate_partial_width_explicit_resolution_uses_preset():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -681,3 +681,142 @@ def test_edit_parser_accepts_true_cfg_scale_flag():
 
     assert args.command == "edit"
     assert args.true_cfg_scale == 2.5
+
+
+# ── resolve_image_dimensions (priority chain) ──────────────────────────────
+
+
+def _make_args(**overrides):
+    """Build a minimal args namespace with the four resolution-related
+    attributes absent by default (simulating ``argparse.SUPPRESS``).
+    Tests override only the ones they want to set, which mirrors how
+    argparse leaves unset attributes off the namespace entirely.
+    """
+    args = SimpleNamespace()
+    for key in ("resolution", "width", "height"):
+        if key in overrides:
+            setattr(args, key, overrides[key])
+    return args
+
+
+def test_resolve_image_dimensions_default_when_nothing_set():
+    """No CLI flags, no config -> 512x512 default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args()
+    config = {}
+    assert resolve_image_dimensions(args, config) == (512, 512)
+
+
+def test_resolve_image_dimensions_cli_width_overrides_default():
+    """--width alone takes the width axis; height still defaults."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=800)
+    assert resolve_image_dimensions(args, {}) == (800, 512)
+
+
+def test_resolve_image_dimensions_cli_height_overrides_default():
+    """--height alone takes the height axis; width still defaults."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(height=600)
+    assert resolve_image_dimensions(args, {}) == (512, 600)
+
+
+def test_resolve_image_dimensions_cli_width_height_both_win():
+    """Both --width and --height set -> exact (w, h), ignoring everything else."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=800, height=600)
+    config = {"defaults": {"width": 1024, "height": 768}}
+    assert resolve_image_dimensions(args, config) == (800, 600)
+
+
+def test_resolve_image_dimensions_cli_resolution_wins_over_config():
+    """--resolution flag overrides config file width/height."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(resolution="large")
+    config = {"defaults": {"width": 640, "height": 480}}
+    assert resolve_image_dimensions(args, config) == (1024, 1024)
+
+
+def test_resolve_image_dimensions_config_used_when_no_cli():
+    """Config width/height used when no CLI flags are passed."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args()
+    config = {"defaults": {"width": 640, "height": 480}}
+    assert resolve_image_dimensions(args, config) == (640, 480)
+
+
+def test_resolve_image_dimensions_partial_width_falls_back_to_config_height():
+    """--width only: missing height falls back to config before default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=800)
+    config = {"defaults": {"height": 768}}
+    assert resolve_image_dimensions(args, config) == (800, 768)
+
+
+def test_resolve_image_dimensions_partial_height_falls_back_to_config_width():
+    """--height only: missing width falls back to config before default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(height=768)
+    config = {"defaults": {"width": 800}}
+    assert resolve_image_dimensions(args, config) == (800, 768)
+
+
+def test_resolve_image_dimensions_partial_width_with_resolution_uses_preset():
+    """--width only + explicit --resolution: missing height uses preset, not config."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(resolution="full", width=800)
+    config = {"defaults": {"height": 768}}
+    assert resolve_image_dimensions(args, config) == (800, 1536)
+
+
+def test_resolve_image_dimensions_partial_width_no_resolution_no_config():
+    """--width only, no --resolution, no config height -> 512 default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=800)
+    assert resolve_image_dimensions(args, {}) == (800, 512)
+
+
+def test_resolve_image_dimensions_partial_height_no_resolution_no_config():
+    """--height only, no --resolution, no config width -> 512 default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(height=600)
+    assert resolve_image_dimensions(args, {}) == (512, 600)
+
+
+def test_resolve_image_dimensions_partial_width_with_resolution_no_config():
+    """--width only + --resolution: height comes from preset, not 512."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(resolution="16:9", width=960)
+    assert resolve_image_dimensions(args, {}) == (960, 544)
+
+
+def test_resolve_image_dimensions_aspect_ratio_preset():
+    """Aspect-ratio presets (e.g. 9:16) resolve correctly."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(resolution="9:16")
+    assert resolve_image_dimensions(args, {}) == (544, 960)
+
+
+def test_resolve_image_dimensions_treats_zero_as_explicit_value():
+    """A user-supplied --width 0 (legal but silly) should NOT be
+    treated as 'unset' — argparse stores 0 as the integer 0, not as
+    a sentinel. The original implementation used truthy checks that
+    silently coerced 0 to the default; this regression test guards
+    against that reappearing."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=0)
+    assert resolve_image_dimensions(args, {}) == (0, 512)
