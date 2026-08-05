@@ -10,6 +10,7 @@ try:
 except ImportError:
     from importlib_metadata import distribution  # Python < 3.8 fallback
 
+from fluxgen.editor import EDIT_DEFAULT_TRUE_CFG, MAX_EDIT_DIMENSION
 from fluxgen.generator import generate_image, generate_random_filename, SUPPORTED_MODELS, DEFAULT_MODEL
 from fluxgen.presets import PRESETS, ALL_RESOLUTION_PRESETS, PRESETS_BY_NAME
 from dataclasses import asdict
@@ -201,6 +202,14 @@ def get_parser(config, version, interactive=False):
     edit_parser.add_argument("--seed", type=int, help="Random seed")
     edit_parser.add_argument("--steps", type=int, default=None, help="Override inference steps")
     edit_parser.add_argument("--guidance", type=float, default=None, help="Guidance scale")
+    edit_parser.add_argument(
+        "--true-cfg-scale", type=float, default=EDIT_DEFAULT_TRUE_CFG,
+        dest="true_cfg_scale",
+        help=(
+            f"true_cfg_scale override (Qwen-Image-Edit only; flux2-klein ignores). "
+            f"Default: {EDIT_DEFAULT_TRUE_CFG}."
+        ),
+    )
     edit_parser.add_argument("--width", type=int, help="Output image width (defaults to input image width)")
     edit_parser.add_argument("--height", "--length", type=int, dest="height", help="Output image height/length (defaults to input image height/length)")
     edit_parser.add_argument("--no-timer", action="store_false", dest="timer", default=True, help="Hide execution time")
@@ -274,7 +283,7 @@ def main(argv=None):
         if args.command in ["generate", "gen"]:
             handle_generate(args, config)
         elif args.command == "edit":
-            handle_edit(args)
+            handle_edit(args, config=config)
         elif args.command in ["interactive", "repl"]:
             handle_interactive(config, _get_version())
         else:
@@ -336,7 +345,7 @@ def handle_interactive(config, version):
                 if args.command in ["generate", "gen"]:
                     handle_generate(args, config, interactive=True)
                 elif args.command == "edit":
-                    handle_edit(args, interactive=True)
+                    handle_edit(args, config=config, interactive=True)
                 elif args.command in ["interactive", "repl"]:
                     logger.error("Already in interactive mode.")
                 else:
@@ -461,9 +470,24 @@ def handle_generate(args, config, interactive=False):
             elapsed = time.perf_counter() - start
             logger.info(f"\u23a1 Generated in {elapsed:.2f}s")
 
-def handle_edit(args, interactive=False):
+def handle_edit(args, config=None, interactive=False):
     with error_handler(args, interactive):
-        from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS
+        from fluxgen.editor import ImageEditor
+
+        # Resolve max_dimension from config, falling back to the
+        # package default. ``config`` is optional so the test suite can
+        # call ``handle_edit(args)`` without constructing a full config
+        # dict; when omitted, the package default applies.
+        config_max_dim = get_config_value(config or {}, "max_edit_dimension", MAX_EDIT_DIMENSION)
+        # Type-check the config value — a malformed entry (e.g. a string)
+        # should not silently bypass the cap.
+        if not isinstance(config_max_dim, int) or config_max_dim <= 0:
+            logger.warning(
+                f"Ignoring invalid 'max_edit_dimension'={config_max_dim!r} in config; "
+                f"using default {MAX_EDIT_DIMENSION}."
+            )
+            config_max_dim = MAX_EDIT_DIMENSION
+        max_dimension = config_max_dim
 
         # Cheap path checks (existence + is_file) duplicated from
         # ImageEditor._resolve_and_validate_inputs: lets us fail-fast
@@ -506,9 +530,11 @@ def handle_edit(args, interactive=False):
             output_path=output_path,
             steps=args.steps,
             guidance_scale=args.guidance,
+            true_cfg_scale=getattr(args, "true_cfg_scale", EDIT_DEFAULT_TRUE_CFG),
             seed=seed,
             width=args.width,
             height=args.height,
+            max_dimension=max_dimension,
         )
 
         if start is not None:

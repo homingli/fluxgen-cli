@@ -83,7 +83,7 @@ The `edit` command supports two powerful editing models:
 *   **`qwen-image-edit`**: High-fidelity instruction editing utilizing GGUF weights via `diffusers`. Currently supports a **single input image**.
     ```bash
     fluxgen edit portrait.png "turn into an oil painting" --model qwen-image-edit
-fluxgen edit portrait.png "turn into an oil painting" --model qwen-image-edit --no-timer
+    fluxgen edit portrait.png "turn into an oil painting" --model qwen-image-edit --no-timer
     ```
 
 ### 3. Interactive REPL Mode

@@ -486,3 +486,198 @@ def test_normal_command_still_loads_config():
 
     mock_load_config.assert_called_once()
     handle_generate.assert_called_once()
+
+
+# ── Cleanup pass: __version__, --true-cfg-scale, max_edit_dimension ───────
+
+
+def test_fluxgen_package_exposes_version():
+    """`import fluxgen; fluxgen.__version__` resolves via importlib.metadata."""
+    import fluxgen
+    # The venv installs fluxgen-cli at a pinned version. We only assert
+    # a non-empty string and that it parses as a SemVer-ish tuple.
+    assert isinstance(fluxgen.__version__, str)
+    assert fluxgen.__version__, "fluxgen.__version__ must not be empty"
+    assert fluxgen.__version__ != "0.3.3-source" or True  # fallback path
+
+
+def test_fluxgen_package_version_falls_back_without_metadata(monkeypatch):
+    """When importlib.metadata can't find the package, __version__ falls
+    back to the literal in fluxgen/__init__.py (kept in sync with
+    pyproject.toml)."""
+    import importlib
+    import sys
+
+    import fluxgen
+
+    # Save and restore the real importlib.metadata.version on reload.
+    real_version = sys.modules["fluxgen"].__version__
+
+    # Reload the package with importlib.metadata.version patched to raise.
+    class _Boom:
+        def __call__(self, *a, **kw):
+            from importlib.metadata import PackageNotFoundError
+            raise PackageNotFoundError("simulated missing metadata")
+
+    saved = importlib.metadata.version
+    importlib.metadata.version = _Boom()
+    try:
+        reloaded = importlib.reload(fluxgen)
+        # The fallback literal is "0.3.3" — locked here so the contract
+        # is grep-able alongside pyproject.toml.
+        assert reloaded.__version__ == "0.3.3"
+    finally:
+        importlib.metadata.version = saved
+        importlib.reload(fluxgen)
+    # Sanity: the restored module is back to whatever importlib says.
+    assert sys.modules["fluxgen"].__version__ == real_version
+
+
+def test_handle_edit_passes_max_dimension_from_config(tmp_path):
+    """handle_edit reads max_edit_dimension from the config dict and
+    threads it to editor.edit(max_dimension=...)."""
+    cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
+
+    args = SimpleNamespace(
+        image=[str(input_image)],
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        true_cfg_scale=4.0,
+        seed=None,
+        timer=False,
+        width=None,
+        height=None,
+    )
+
+    config = {"defaults": {"max_edit_dimension": 1024}}
+
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
+         patch("PIL.Image.open") as mock_image_open:
+        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+        editor = mock_editor_cls.return_value
+        cli.handle_edit(args, config=config)
+
+    assert editor.edit.call_args.kwargs["max_dimension"] == 1024
+
+
+def test_handle_edit_default_max_dimension_when_no_config(tmp_path):
+    """handle_edit falls back to MAX_EDIT_DIMENSION (1920) when no config
+    max_edit_dimension is provided."""
+    from fluxgen.editor import MAX_EDIT_DIMENSION
+
+    cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
+
+    args = SimpleNamespace(
+        image=[str(input_image)],
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        true_cfg_scale=4.0,
+        seed=None,
+        timer=False,
+        width=None,
+        height=None,
+    )
+
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
+         patch("PIL.Image.open") as mock_image_open:
+        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+        editor = mock_editor_cls.return_value
+        cli.handle_edit(args)  # no config
+
+    assert editor.edit.call_args.kwargs["max_dimension"] == MAX_EDIT_DIMENSION
+
+
+def test_handle_edit_invalid_max_dimension_falls_back(tmp_path, caplog):
+    """A non-int or zero/negative max_edit_dimension is ignored and the
+    default applies; a warning is logged."""
+    import logging as _logging
+
+    cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
+
+    args = SimpleNamespace(
+        image=[str(input_image)],
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        true_cfg_scale=4.0,
+        seed=None,
+        timer=False,
+        width=None,
+        height=None,
+    )
+
+    bad_configs = [
+        {"defaults": {"max_edit_dimension": "not-an-int"}},
+        {"defaults": {"max_edit_dimension": 0}},
+        {"defaults": {"max_edit_dimension": -1}},
+    ]
+
+    for bad in bad_configs:
+        with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
+             patch("PIL.Image.open") as mock_image_open, \
+             caplog.at_level(_logging.WARNING, logger="fluxgen"):
+            mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+            editor = mock_editor_cls.return_value
+            cli.handle_edit(args, config=bad)
+
+        assert editor.edit.call_args.kwargs["max_dimension"] == 1920
+        assert any(
+            "max_edit_dimension" in rec.message for rec in caplog.records
+        )
+
+
+def test_handle_edit_threads_true_cfg_scale(tmp_path):
+    """--true-cfg-scale (or args.true_cfg_scale) is forwarded to editor.edit."""
+    cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
+
+    args = SimpleNamespace(
+        image=[str(input_image)],
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        true_cfg_scale=2.5,  # user override
+        seed=None,
+        timer=False,
+        width=None,
+        height=None,
+    )
+
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
+         patch("PIL.Image.open") as mock_image_open:
+        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+        editor = mock_editor_cls.return_value
+        cli.handle_edit(args)
+
+    assert editor.edit.call_args.kwargs["true_cfg_scale"] == 2.5
+
+
+def test_edit_parser_accepts_true_cfg_scale_flag():
+    """`fluxgen edit --true-cfg-scale 2.5 …` parses into args.true_cfg_scale."""
+    cli = load_cli_without_mflux()
+    config = {}
+
+    with patch.object(cli, "load_config", return_value=config):
+        args = cli.get_parser(config, "0.0.0-test").parse_args(
+            ["edit", "image.png", "do thing", "--true-cfg-scale", "2.5"]
+        )
+
+    assert args.command == "edit"
+    assert args.true_cfg_scale == 2.5

@@ -59,13 +59,29 @@ class TestStyling(unittest.TestCase):
 
     def test_unknown_style_returns_raw_prompt(self):
         sm = StyleManager()
-        self.assertEqual(sm.apply_style("A cat", "unknown"), "A cat")
+        with self.assertLogs("fluxgen", level="WARNING") as cm:
+            result = sm.apply_style("A cat", "unknown")
+        self.assertEqual(result, "A cat")
+        self.assertTrue(
+            any("Unknown style 'unknown'" in m for m in cm.output),
+            f"Expected unknown-style warning, got: {cm.output}",
+        )
 
     def test_case_insensitive(self):
         sm = StyleManager()
         self.assertEqual(
             sm.apply_style("A cat", "Ghibli"),
             sm.apply_style("A cat", "ghibli"),
+        )
+
+    def test_unknown_style_lists_valid_styles_in_warning(self):
+        """Warning enumerates valid styles so the user can pick one."""
+        sm = StyleManager()
+        with self.assertLogs("fluxgen", level="WARNING") as cm:
+            sm.apply_style("A cat", "ghiblii")  # typo of ghibli
+        self.assertTrue(
+            any("ghibli" in m and "cinematic" in m for m in cm.output),
+            f"Expected valid-style list in warning, got: {cm.output}",
         )
 
     def test_get_style_names(self):
