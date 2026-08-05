@@ -6,6 +6,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+# Submodules of ``fluxgen.cli`` that hold top-level imports from
+# ``fluxgen.generator`` / ``fluxgen.editor`` and therefore need to be
+# reloaded after swapping the fakes into ``sys.modules``. Listed in
+# dependency order — leaves first so they pick up the fake before the
+# root ``__init__`` re-runs its own imports.
+_CLI_SUBMODULES = (
+    "fluxgen.cli.commands",
+    "fluxgen.cli.presets_arg",
+    "fluxgen.cli.interactive",
+)
+
+
 def load_cli_without_mflux():
     fake_generator = MagicMock()
     fake_generator.generate_image = MagicMock()
@@ -13,36 +25,24 @@ def load_cli_without_mflux():
     fake_generator.SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
     fake_generator.DEFAULT_MODEL = "zimage-turbo"
 
-    # Ensure ``fluxgen.cli`` is loaded at least once so we have a
-    # module object to reload in place. ``reload`` updates an
+    # Ensure ``fluxgen.cli`` and its submodules are loaded at least
+    # once so reload has something to reload. ``reload`` updates an
     # existing module's ``__dict__`` rather than creating a new
     # object, so ``cli.handle_generate.__globals__`` stays in sync
     # with ``sys.modules['fluxgen.cli.commands']`` and patches like
     # ``patch('fluxgen.cli.commands.generate_image')`` take effect.
-    # Without ``reload``, ``patch.dict`` cleanup would drop the
-    # submodules from ``sys.modules`` and any subsequent
+    # Without reload, ``patch.dict`` cleanup would drop the submodules
+    # from ``sys.modules`` and any subsequent
     # ``patch('fluxgen.cli.commands.X')`` would import a *second*
     # fresh module object that the test's already-bound
     # ``cli.handle_generate`` no longer references.
-    if "fluxgen.cli" not in sys.modules:
-        importlib.import_module("fluxgen.cli")
-    if "fluxgen.cli.commands" not in sys.modules:
-        importlib.import_module("fluxgen.cli.commands")
-    if "fluxgen.cli.presets_arg" not in sys.modules:
-        importlib.import_module("fluxgen.cli.presets_arg")
-    if "fluxgen.cli.interactive" not in sys.modules:
-        importlib.import_module("fluxgen.cli.interactive")
+    importlib.import_module("fluxgen.cli")
+    for name in _CLI_SUBMODULES:
+        importlib.import_module(name)
 
     with patch.dict(sys.modules, {"fluxgen.generator": fake_generator}):
-        # Reload the CLI submodules so their top-level
-        # ``from fluxgen.generator import generate_image, …``
-        # rebinds to the fakes now in ``sys.modules``. ``reload``
-        # mutates the existing module's ``__dict__`` in place, so
-        # any already-imported references (e.g. ``cli.handle_generate``
-        # pointing at this module's ``__globals__``) stay valid.
-        importlib.reload(sys.modules["fluxgen.cli.commands"])
-        importlib.reload(sys.modules["fluxgen.cli.presets_arg"])
-        importlib.reload(sys.modules["fluxgen.cli.interactive"])
+        for name in _CLI_SUBMODULES:
+            importlib.reload(sys.modules[name])
         importlib.reload(sys.modules["fluxgen.cli"])
 
     return sys.modules["fluxgen.cli"]
@@ -455,20 +455,29 @@ def test_get_version_falls_back_to_pyproject_when_distribution_missing():
     assert cli._cached_version == expected
 
 
-def test_get_version_returns_unknown_when_all_lookups_fail():
-    """When both distribution and pyproject.toml fail, return 'unknown'."""
+def test_get_version_delegates_to_fluxgen_version_when_metadata_missing():
+    """When ``importlib.metadata.distribution`` can't find the
+    package, ``_get_version`` delegates to ``fluxgen.__version__``
+    rather than reimplementing its own fallback chain.
+
+    This is the contract that keeps the CLI's ``--version`` output
+    in lockstep with what embedders see via ``import fluxgen`` — a
+    single source of truth. The drift test
+    ``test_fluxgen_fallback_literal_matches_pyproject`` keeps the
+    literal in ``fluxgen/__init__.py`` honest.
+    """
     cli = load_cli_without_mflux()
     cli._cached_version = None
 
-    # Patch distribution on the cli instance directly — patch("fluxgen.cli.distribution")
-    # re-imports cli and patches a different module object.
+    # Patch distribution to raise; ``_get_version`` should now
+    # delegate to fluxgen.__version__ (which falls back to the
+    # hard-coded literal "0.3.3" via the fluxgen package init).
     with patch.object(cli, "distribution", side_effect=FileNotFoundError("nope")):
-        # Patch Path.open so the pyproject.toml fallback also fails.
-        with patch("pathlib.Path.open", side_effect=OSError("nope")):
-            v = cli._get_version()
+        v = cli._get_version()
 
-    assert v == "unknown"
-    assert cli._cached_version == "unknown"
+    import fluxgen
+    assert v == fluxgen.__version__
+    assert cli._cached_version == fluxgen.__version__
 
 
 # ── Fast path: --help / --version skip config load ─────────────────────────────
@@ -695,6 +704,13 @@ def test_handle_edit_invalid_max_dimension_falls_back(tmp_path, caplog):
         {"defaults": {"max_edit_dimension": "not-an-int"}},
         {"defaults": {"max_edit_dimension": 0}},
         {"defaults": {"max_edit_dimension": -1}},
+        # bool is a subclass of int — ``isinstance(True, int)`` is True.
+        # The CLI must reject it explicitly so a TOML
+        # ``max_edit_dimension = true`` doesn't sneak through as a
+        # legitimate value (which would later compare incorrectly in
+        # the editor's ``> max_dimension`` checks).
+        {"defaults": {"max_edit_dimension": True}},
+        {"defaults": {"max_edit_dimension": False}},
     ]
 
     for bad in bad_configs:

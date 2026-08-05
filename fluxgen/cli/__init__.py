@@ -50,7 +50,10 @@ from fluxgen.cli.commands import (
     handle_edit,
     handle_generate,
 )
-from fluxgen.cli.interactive import handle_interactive
+from fluxgen.cli.interactive import (
+    add_interactive_parser,
+    handle_interactive,
+)
 from fluxgen.cli.presets_arg import (
     COMMANDS,
     GLOBAL_FLAGS,
@@ -122,10 +125,16 @@ def _get_version() -> str:
     """Resolve the fluxgen-cli version. Cached after first call.
 
     Looks up via :func:`importlib.metadata.distribution` first;
-    falls back to reading ``pyproject.toml`` directly when the
-    package is not installed (e.g. running from a source checkout
-    without ``uv sync``). Returns ``"unknown"`` if neither path
-    yields a version.
+    delegates to :data:`fluxgen.__version__` when that fails (which
+    itself has a hard-coded literal fallback kept in sync with
+    ``pyproject.toml`` via
+    :func:`test_fluxgen_fallback_literal_matches_pyproject`).
+
+    This keeps ``_get_version`` and ``fluxgen.__version__`` in
+    lockstep — a single source of truth — rather than each maintaining
+    its own independent fallback chain (which previously diverged:
+    CLI's chain included a ``pyproject.toml`` read and an ``"unknown"``
+    sentinel, while ``fluxgen.__version__`` had a hard-coded literal).
 
     The cache lives in :data:`_cached_version` so callers can reset
     it (the test suite does this to verify the lookup paths in
@@ -141,21 +150,12 @@ def _get_version() -> str:
     except (ImportError, FileNotFoundError):
         pass
 
-    try:
-        import tomllib
-        # When this module lives at ``fluxgen/cli/__init__.py`` (the
-        # post-split layout), ``parent.parent.parent`` walks back up
-        # to the repo root where ``pyproject.toml`` sits. The
-        # pre-split flat module was at ``fluxgen/cli.py``, so
-        # ``parent.parent`` sufficed there — the extra ``parent`` here
-        # accounts for the new ``cli/`` package directory.
-        with Path(__file__).parent.parent.parent.joinpath("pyproject.toml").open("rb") as f:
-            _cached_version = tomllib.load(f)["project"]["version"]
-            return _cached_version
-    except (ImportError, KeyError, OSError):
-        pass
-
-    _cached_version = "unknown"
+    # Lazy import to avoid a circular import: ``fluxgen`` is the
+    # top-level package and importing it at module load would pull
+    # in the entire CLI / generator / editor graph before this
+    # module finishes initializing.
+    from fluxgen import __version__ as _pkg_version
+    _cached_version = _pkg_version
     return _cached_version
 
 
@@ -172,14 +172,24 @@ def get_parser(config, version, interactive=False):
     on ``--help`` / ``--version`` (the desired behavior for the
     one-shot CLI).
 
-    Subparsers are built by delegating to
-    :func:`fluxgen.cli.commands.add_generate_parser`,
-    :func:`fluxgen.cli.commands.add_edit_parser`, and the inline
-    interactive parser block. The shared verbosity parent (built
+    Subparsers are built by delegating to each handler module's
+    ``add_*_parser`` function. The shared verbosity parent (built
     here via :func:`fluxgen.cli.presets_arg.add_verbosity_flags`) is
     reused as ``parents=[verbosity_parent]`` on every subparser so
     ``-v/--verbose`` / ``-s/--silent`` behave identically and the
     help text stays in one place.
+
+    Note on import cost: ``commands`` is imported at the top of this
+    module for ``handle_generate`` / ``handle_edit`` re-exports, so
+    ``fluxgen.editor`` (diffusers, huggingface_hub) and
+    ``fluxgen.generator` (mflux) are pulled in at parser-build time
+    even for ``--help`` / ``--version``. The pre-split single-module
+    layout paid the same cost; the post-split package keeps it. The
+    passthrough-flag fast path (``main()``) skips ``load_config`` on
+    ``--help`` / ``--version`` but cannot avoid the import-time
+    transitive cost without a more invasive lazy-import refactor
+    that would also break the existing ``patch.object(cli, X)`` test
+    contracts.
     """
     verbosity_parent = argparse.ArgumentParser(add_help=False)
     add_verbosity_flags(verbosity_parent)
@@ -194,27 +204,44 @@ def get_parser(config, version, interactive=False):
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # The subparser builders only touch argparse + `fluxgen.config` /
-    # `fluxgen.presets`, so calling them here stays cheap — no model
-    # loaders or diffusers are pulled in until the user actually
-    # runs a subcommand.
     add_generate_parser(subparsers, verbosity_parent, config)
     add_edit_parser(subparsers, verbosity_parent, config)
-
-    # Interactive subparser is a one-liner — kept inline rather than
-    # delegated to interactive.py so it doesn't import REPL-only
-    # dependencies (readline, shlex) at parser-build time.
-    subparsers.add_parser(
-        "interactive",
-        aliases=["repl"],
-        help="Start an interactive session to keep models loaded in memory",
-        parents=[verbosity_parent],
-    )
+    add_interactive_parser(subparsers, verbosity_parent)
 
     return parser
 
 
 # ── Entry point ────────────────────────────────────────────────────────────
+
+
+# ── Subcommand dispatch ──────────────────────────────────────────────────
+#
+# Maps each subcommand token (canonical name + alias) to its handler.
+# The dispatch in :func:`main` is a single ``.get()`` lookup instead
+# of an if/elif chain — keeps the alias list in one place rather than
+# scattered as ``["generate", "gen"]`` literals, and the membership
+# check below proves all dispatch targets are real commands (so the
+# table stays in sync with :data:`fluxgen.cli.presets_arg.COMMANDS`).
+
+def _dispatch_generate(args, config, _version):
+    handle_generate(args, config)
+
+
+def _dispatch_edit(args, config, _version):
+    handle_edit(args, config=config)
+
+
+def _dispatch_interactive(args, config, version):
+    handle_interactive(config, version)
+
+
+_DISPATCH = {
+    "generate": _dispatch_generate,
+    "gen": _dispatch_generate,
+    "edit": _dispatch_edit,
+    "interactive": _dispatch_interactive,
+    "repl": _dispatch_interactive,
+}
 
 
 def main(argv=None):
@@ -230,8 +257,7 @@ def main(argv=None):
     3. Parse argv via :func:`get_parser`.
     4. Reject ``--silent`` + ``--verbose`` (mutually exclusive).
     5. Install the logger handler.
-    6. Dispatch to ``handle_generate`` / ``handle_edit`` /
-       ``handle_interactive`` under
+    6. Dispatch by subcommand via :data:`_DISPATCH` under
        :func:`suppress_external_output` so ``--silent`` actually
        silences underlying libraries.
     """
@@ -255,15 +281,13 @@ def main(argv=None):
     silent = getattr(args, "silent", False)
     setup_logging(verbose=getattr(args, "verbose", False), silent=silent)
 
+    handler = _DISPATCH.get(args.command)
+    if handler is None:
+        parser.print_help()
+        return
+
     with suppress_external_output(silent):
-        if args.command in ["generate", "gen"]:
-            handle_generate(args, config)
-        elif args.command == "edit":
-            handle_edit(args, config=config)
-        elif args.command in ["interactive", "repl"]:
-            handle_interactive(config, _get_version())
-        else:
-            parser.print_help()
+        handler(args, config, _get_version())
 
 
 __all__ = [

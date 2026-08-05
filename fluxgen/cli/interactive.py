@@ -92,6 +92,24 @@ _BANNER = r"""
 """
 
 
+def add_interactive_parser(subparsers, verbosity_parent):
+    """Attach the ``interactive`` / ``repl`` subparser to ``subparsers``.
+
+    Lifted out of :func:`fluxgen.cli.get_parser` so the parser-build
+    path is symmetric across subcommands — each subcommand's
+    definition lives in its handler module. The body itself is just
+    argparse glue: name, alias, help text, and the shared verbosity
+    parent. The REPL loop (:func:`handle_interactive`) is the only
+    REPL-only consumer and is invoked at runtime, not at parser-build.
+    """
+    subparsers.add_parser(
+        "interactive",
+        aliases=["repl"],
+        help="Start an interactive session to keep models loaded in memory",
+        parents=[verbosity_parent],
+    )
+
+
 def handle_interactive(config, version):
     """Drive the interactive REPL.
 

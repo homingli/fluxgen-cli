@@ -86,14 +86,21 @@ def resolve_image_dimensions(args, config) -> tuple[int, int]:
     config_width = get_config_value(config, "width", None)
     config_height = get_config_value(config, "height", None)
 
+    # Unpack the preset once so both axes can pull their respective
+    # element without a second dict lookup. ``None`` when no preset
+    # was passed, in which case _resolve_axis skips the preset layer.
+    preset = ALL_RESOLUTION_PRESETS.get(cli_resolution) if cli_resolution else None
+    preset_width = preset[0] if preset else None
+    preset_height = preset[1] if preset else None
+
     if cli_width is not None or cli_height is not None:
         # Explicit per-axis CLI flag wins. Missing axis falls through
         # the rest of the chain via _resolve_axis.
-        width = _resolve_axis(cli_width, cli_resolution, config_width, axis=0)
-        height = _resolve_axis(cli_height, cli_resolution, config_height, axis=1)
-    elif cli_resolution is not None:
+        width = _resolve_axis(cli_width, preset_width, config_width)
+        height = _resolve_axis(cli_height, preset_height, config_height)
+    elif preset is not None:
         # Explicit --resolution overrides config (no CLI w/h set).
-        width, height = ALL_RESOLUTION_PRESETS[cli_resolution]
+        width, height = preset
     else:
         # No CLI flags: fall back to config, then default.
         width = config_width if config_width is not None else _DEFAULT_DIMENSION
@@ -102,19 +109,27 @@ def resolve_image_dimensions(args, config) -> tuple[int, int]:
     return width, height
 
 
-def _resolve_axis(cli_value, cli_resolution, config_value, *, axis):
+def _resolve_axis(cli_value, preset_value, config_value):
     """Resolve a single axis (width or height) through the priority chain.
 
-    Shared by both axes inside :func:`resolve_image_dimensions` when an
-    explicit per-axis CLI flag was passed for at least one axis; the
-    missing axis falls through the same chain independently. ``axis``
-    is the index into the resolution preset tuple (``0`` for width,
-    ``1`` for height).
+    Priority (highest to lowest):
+
+    1. Explicit CLI value (``--width`` / ``--height``).
+    2. Resolution preset element for this axis (``preset_value`` is
+       already pre-unpacked by the caller, so this helper has no
+       knowledge of which axis it is — it just falls through the
+       chain).
+    3. Config value from ``.fluxgen.toml``.
+    4. Hard default.
+
+    Shared by both axes inside :func:`resolve_image_dimensions` when
+    an explicit per-axis CLI flag was passed for at least one axis;
+    the missing axis falls through the same chain independently.
     """
     if cli_value is not None:
         return cli_value
-    if cli_resolution is not None:
-        return ALL_RESOLUTION_PRESETS[cli_resolution][axis]
+    if preset_value is not None:
+        return preset_value
     if config_value is not None:
         return config_value
     return _DEFAULT_DIMENSION
@@ -395,8 +410,14 @@ def handle_edit(args, config=None, interactive=False):
         # config dict; when omitted, the package default applies.
         config_max_dim = get_config_value(config or {}, "max_edit_dimension", MAX_EDIT_DIMENSION)
         # Type-check the config value — a malformed entry (e.g. a
-        # string) should not silently bypass the cap.
-        if not isinstance(config_max_dim, int) or config_max_dim <= 0:
+        # string) should not silently bypass the cap. Use ``type() is
+        # int`` rather than ``isinstance(..., int)`` so a TOML
+        # ``max_edit_dimension = true`` doesn't sneak through:
+        # ``bool`` is a subclass of ``int``, so ``isinstance(True,
+        # int)`` is True, but the editor expects a real int (it
+        # compares dimensions with ``>`` and arithmetic). Rejecting
+        # bool keeps the contract honest.
+        if type(config_max_dim) is not int or config_max_dim <= 0:
             logger.warning(
                 f"Ignoring invalid 'max_edit_dimension'={config_max_dim!r} in config; "
                 f"using default {MAX_EDIT_DIMENSION}."
