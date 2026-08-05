@@ -59,6 +59,10 @@ def test_edit_default_output_uses_random_filename(tmp_path):
         output_dir="output",
         steps=None,
         guidance=1.0,
+        # add_edit_parser sets default=EDIT_DEFAULT_TRUE_CFG for
+        # this attribute; the test bypasses argparse so we set it
+        # explicitly here.
+        true_cfg_scale=4.0,
         timer=False,
         width=None,
         height=None,
@@ -714,6 +718,10 @@ def test_handle_edit_invalid_max_dimension_falls_back(tmp_path, caplog):
     ]
 
     for bad in bad_configs:
+        # Clear records so each iteration is checked in isolation;
+        # otherwise a warning logged for an earlier case would mask a
+        # silent regression in a later one.
+        caplog.clear()
         with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
              caplog.at_level(_logging.WARNING, logger="fluxgen"):
             editor = mock_editor_cls.return_value
@@ -722,7 +730,7 @@ def test_handle_edit_invalid_max_dimension_falls_back(tmp_path, caplog):
         assert editor.edit.call_args.kwargs["max_dimension"] == 1920
         assert any(
             "max_edit_dimension" in rec.message for rec in caplog.records
-        )
+        ), f"no max_edit_dimension warning logged for config={bad!r}"
 
 
 def test_handle_edit_threads_true_cfg_scale(tmp_path):

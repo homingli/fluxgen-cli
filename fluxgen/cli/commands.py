@@ -407,8 +407,13 @@ def handle_edit(args, config=None, interactive=False):
         # Resolve max_dimension from config, falling back to the
         # package default. ``config`` is optional so the test suite
         # can call ``handle_edit(args)`` without constructing a full
+        # Resolve max_dimension from config, falling back to the
+        # package default. ``config`` is optional so the test suite
+        # can call ``handle_edit(args)`` without constructing a full
         # config dict; when omitted, the package default applies.
-        config_max_dim = get_config_value(config or {}, "max_edit_dimension", MAX_EDIT_DIMENSION)
+        max_dimension = get_config_value(
+            config or {}, "max_edit_dimension", MAX_EDIT_DIMENSION
+        )
         # Type-check the config value — a malformed entry (e.g. a
         # string) should not silently bypass the cap. Use ``type() is
         # int`` rather than ``isinstance(..., int)`` so a TOML
@@ -417,13 +422,12 @@ def handle_edit(args, config=None, interactive=False):
         # int)`` is True, but the editor expects a real int (it
         # compares dimensions with ``>`` and arithmetic). Rejecting
         # bool keeps the contract honest.
-        if type(config_max_dim) is not int or config_max_dim <= 0:
+        if type(max_dimension) is not int or max_dimension <= 0:
             logger.warning(
-                f"Ignoring invalid 'max_edit_dimension'={config_max_dim!r} in config; "
+                f"Ignoring invalid 'max_edit_dimension'={max_dimension!r} in config; "
                 f"using default {MAX_EDIT_DIMENSION}."
             )
-            config_max_dim = MAX_EDIT_DIMENSION
-        max_dimension = config_max_dim
+            max_dimension = MAX_EDIT_DIMENSION
 
         # Cheap path checks (existence + is_file) duplicated from
         # ``ImageEditor._resolve_and_validate_inputs``: lets us
@@ -469,7 +473,10 @@ def handle_edit(args, config=None, interactive=False):
             output_path=output_path,
             steps=args.steps,
             guidance_scale=args.guidance,
-            true_cfg_scale=getattr(args, "true_cfg_scale", EDIT_DEFAULT_TRUE_CFG),
+            # ``add_edit_parser`` sets ``default=EDIT_DEFAULT_TRUE_CFG``
+            # so ``args.true_cfg_scale`` is always present — no
+            # ``getattr`` fallback needed.
+            true_cfg_scale=args.true_cfg_scale,
             seed=seed,
             width=args.width,
             height=args.height,

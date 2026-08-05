@@ -182,7 +182,7 @@ def get_parser(config, version, interactive=False):
     Note on import cost: ``commands`` is imported at the top of this
     module for ``handle_generate`` / ``handle_edit`` re-exports, so
     ``fluxgen.editor`` (diffusers, huggingface_hub) and
-    ``fluxgen.generator` (mflux) are pulled in at parser-build time
+    ``fluxgen.generator`` (mflux) are pulled in at parser-build time
     even for ``--help`` / ``--version``. The pre-split single-module
     layout paid the same cost; the post-split package keeps it. The
     passthrough-flag fast path (``main()``) skips ``load_config`` on
@@ -219,9 +219,10 @@ def get_parser(config, version, interactive=False):
 # Maps each subcommand token (canonical name + alias) to its handler.
 # The dispatch in :func:`main` is a single ``.get()`` lookup instead
 # of an if/elif chain — keeps the alias list in one place rather than
-# scattered as ``["generate", "gen"]`` literals, and the membership
-# check below proves all dispatch targets are real commands (so the
-# table stays in sync with :data:`fluxgen.cli.presets_arg.COMMANDS`).
+# scattered as ``["generate", "gen"]`` literals. The ``assert`` below
+# locks the dispatch keys to :data:`fluxgen.cli.presets_arg.COMMANDS`
+# so a future subcommand added in one place without the other fails
+# at import time rather than silently being unrecognized.
 
 def _dispatch_generate(args, config, _version):
     handle_generate(args, config)
@@ -242,6 +243,15 @@ _DISPATCH = {
     "interactive": _dispatch_interactive,
     "repl": _dispatch_interactive,
 }
+
+# Lock dispatch keys to COMMANDS so the two stay in sync. Raises
+# ``AssertionError`` at import time if a subcommand is added to
+# ``COMMANDS`` without a corresponding dispatch entry (or vice
+# versa), rather than letting ``fluxgen gen-foo`` silently print
+# help and exit.
+assert set(_DISPATCH) == COMMANDS, (
+    f"_DISPATCH keys {sorted(_DISPATCH)} don't match COMMANDS {sorted(COMMANDS)}"
+)
 
 
 def main(argv=None):
