@@ -20,6 +20,11 @@ BASE_MODEL_CONFIG = "Qwen/Qwen-Image-Edit-2511"
 
 # Maximum dimension (longest side) for edit outputs. Larger inputs are
 # downscaled to fit while preserving aspect ratio.
+#
+# This is the package-level default. Callers (CLI, MCP) may override
+# per-call via ``ImageEditor.edit(..., max_dimension=...)`` or by reading
+# ``max_edit_dimension`` from `.fluxgen.toml`. The CLI resolver supplies
+# ``max_dimension=getattr(args, "max_edit_dimension", MAX_EDIT_DIMENSION)``.
 MAX_EDIT_DIMENSION = 1920
 
 
@@ -179,8 +184,17 @@ class ImageEditor:
         seed: int | None = None,
         width: int | None = None,
         height: int | None = None,
+        max_dimension: int = MAX_EDIT_DIMENSION,
     ) -> None:
-        """Perform instruction-based image editing."""
+        """Perform instruction-based image editing.
+
+        ``max_dimension`` caps the longest side of the edit output.
+        Inputs or requested dimensions larger than this are downscaled
+        while preserving aspect ratio. Defaults to
+        :data:`MAX_EDIT_DIMENSION` (1920 px); the CLI passes the value
+        from `[defaults] max_edit_dimension` in `.fluxgen.toml` when
+        present, falling back to the default.
+        """
         resolved_paths, (img_w, img_h) = self._resolve_and_validate_inputs(image_paths)
 
         # Log warning if multiple images are provided and we are using default size from first image
@@ -192,24 +206,25 @@ class ImageEditor:
         run_width = width if width is not None else img_w
         run_height = height if height is not None else img_h
 
-        # Limit maximum dimensions to MAX_EDIT_DIMENSION while preserving aspect ratio
-        if run_width > MAX_EDIT_DIMENSION or run_height > MAX_EDIT_DIMENSION:
+        # Limit maximum dimensions to the configured cap (per-call or
+        # package default) while preserving aspect ratio.
+        if run_width > max_dimension or run_height > max_dimension:
             aspect_ratio = run_width / run_height
             if run_width > run_height:
-                new_w = MAX_EDIT_DIMENSION
-                new_h = int(round(MAX_EDIT_DIMENSION / aspect_ratio))
+                new_w = max_dimension
+                new_h = int(round(max_dimension / aspect_ratio))
             else:
-                new_h = MAX_EDIT_DIMENSION
-                new_w = int(round(MAX_EDIT_DIMENSION * aspect_ratio))
+                new_h = max_dimension
+                new_w = int(round(max_dimension * aspect_ratio))
 
             if width is not None or height is not None:
                 logger.warning(
-                    f"Requested dimensions ({run_width}x{run_height}) exceed the {MAX_EDIT_DIMENSION}px limit. "
+                    f"Requested dimensions ({run_width}x{run_height}) exceed the {max_dimension}px limit. "
                     f"Downscaling overrides to {new_w}x{new_h} to preserve aspect ratio."
                 )
             else:
                 logger.warning(
-                    f"Input image dimensions ({img_w}x{img_h}) exceed the {MAX_EDIT_DIMENSION}px limit. "
+                    f"Input image dimensions ({img_w}x{img_h}) exceed the {max_dimension}px limit. "
                     f"Downscaling to {new_w}x{new_h} to preserve aspect ratio."
                 )
             run_width, run_height = new_w, new_h

@@ -20,7 +20,10 @@ For backward compatibility, any first argument that is not a known subcommand is
 
 Files:
 
-- `fluxgen/cli.py`
+- `fluxgen/cli/__init__.py` — entry point (`main`), parser aggregator (`get_parser`), version resolver, logging setup
+- `fluxgen/cli/commands.py` — `generate` / `edit` subparsers and handlers, output-path resolver, resolution priority chain (`resolve_image_dimensions`)
+- `fluxgen/cli/presets_arg.py` — argv-shape constants, `with_default_command`, and the reusable argparse builders (`add_verbosity_flags`, `add_preset_args`, `add_resolution_args`)
+- `fluxgen/cli/interactive.py` — REPL parser subclass and `handle_interactive`
 - `fluxgen/generator.py`
 - `fluxgen/presets.py`
 - `fluxgen/styling.py`
@@ -28,12 +31,13 @@ Files:
 
 Flow:
 
-1. `cli.py` parses generation arguments and config defaults.
+1. `cli/__init__.py:main` parses argv (after `with_default_command` normalization) and dispatches by subcommand.
 2. `config.py` loads `.fluxgen.toml` from home and current directory.
 3. `presets.py` supplies step and quantization presets.
-4. `styling.py` applies built-in or configured prompt styles.
-5. `generator.py` selects an `mflux` model through `ModelManager`.
-6. The generated PIL image is saved to the requested output path.
+4. `cli/commands.py:resolve_image_dimensions` resolves `(width, height)` from CLI flags + config + defaults via the documented priority chain.
+5. `styling.py` applies built-in or configured prompt styles.
+6. `generator.py` selects an `mflux` model through `ModelManager`.
+7. The generated PIL image is saved to the requested output path.
 
 `ModelManager` caches one active model instance. It recreates the model when the requested backend or quantization changes.
 
@@ -48,12 +52,13 @@ Supported generation backends:
 
 Files:
 
-- `fluxgen/cli.py`
+- `fluxgen/cli/__init__.py`
+- `fluxgen/cli/commands.py`
 - `fluxgen/editor.py`
 
 Flow:
 
-1. `cli.py` builds the edit output path and creates `ImageEditor`.
+1. `cli/commands.py:handle_edit` builds the edit output path (via `resolve_output_path`) and creates `ImageEditor`.
 2. `ImageEditor` chooses device priority: MPS, CUDA, then CPU.
 3. The Qwen GGUF transformer is downloaded with `huggingface_hub`.
 4. Diffusers loads `QwenImageEditPlusPipeline` from `Qwen/Qwen-Image-Edit-2511`.

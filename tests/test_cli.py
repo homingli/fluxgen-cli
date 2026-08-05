@@ -6,6 +6,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+# Submodules of ``fluxgen.cli`` that hold top-level imports from
+# ``fluxgen.generator`` / ``fluxgen.editor`` and therefore need to be
+# reloaded after swapping the fakes into ``sys.modules``. Listed in
+# dependency order — leaves first so they pick up the fake before the
+# root ``__init__`` re-runs its own imports.
+_CLI_SUBMODULES = (
+    "fluxgen.cli.commands",
+    "fluxgen.cli.presets_arg",
+    "fluxgen.cli.interactive",
+)
+
+
 def load_cli_without_mflux():
     fake_generator = MagicMock()
     fake_generator.generate_image = MagicMock()
@@ -13,9 +25,27 @@ def load_cli_without_mflux():
     fake_generator.SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
     fake_generator.DEFAULT_MODEL = "zimage-turbo"
 
+    # Ensure ``fluxgen.cli`` and its submodules are loaded at least
+    # once so reload has something to reload. ``reload`` updates an
+    # existing module's ``__dict__`` rather than creating a new
+    # object, so ``cli.handle_generate.__globals__`` stays in sync
+    # with ``sys.modules['fluxgen.cli.commands']`` and patches like
+    # ``patch('fluxgen.cli.commands.generate_image')`` take effect.
+    # Without reload, ``patch.dict`` cleanup would drop the submodules
+    # from ``sys.modules`` and any subsequent
+    # ``patch('fluxgen.cli.commands.X')`` would import a *second*
+    # fresh module object that the test's already-bound
+    # ``cli.handle_generate`` no longer references.
+    importlib.import_module("fluxgen.cli")
+    for name in _CLI_SUBMODULES:
+        importlib.import_module(name)
+
     with patch.dict(sys.modules, {"fluxgen.generator": fake_generator}):
-        sys.modules.pop("fluxgen.cli", None)
-        return importlib.import_module("fluxgen.cli")
+        for name in _CLI_SUBMODULES:
+            importlib.reload(sys.modules[name])
+        importlib.reload(sys.modules["fluxgen.cli"])
+
+    return sys.modules["fluxgen.cli"]
 
 
 def test_edit_default_output_uses_random_filename(tmp_path):
@@ -29,15 +59,17 @@ def test_edit_default_output_uses_random_filename(tmp_path):
         output_dir="output",
         steps=None,
         guidance=1.0,
+        # add_edit_parser sets default=EDIT_DEFAULT_TRUE_CFG for
+        # this attribute; the test bypasses argparse so we set it
+        # explicitly here.
+        true_cfg_scale=4.0,
         timer=False,
         width=None,
         height=None,
     )
 
     with patch("wonderwords.RandomWord") as mock_random_word_cls, \
-         patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
-         patch("PIL.Image.open") as mock_image_open:
-        mock_image_open.return_value.__enter__.return_value.size = (512, 512)
+         patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
         mock_random_word_cls.return_value.random_words.side_effect = [["red"], ["blue"]]
         editor = mock_editor_cls.return_value
 
@@ -174,7 +206,7 @@ def test_handle_generate_resolution_tiny_dimensions():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -200,7 +232,7 @@ def test_handle_generate_resolution_large_dimensions():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -226,7 +258,7 @@ def test_handle_generate_resolution_aspect_ratio():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -252,7 +284,7 @@ def test_handle_generate_width_height_overrides_resolution():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -283,7 +315,7 @@ def test_handle_generate_config_override_resolution():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -310,7 +342,7 @@ def test_handle_generate_resolution_overrides_config():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -338,7 +370,7 @@ def test_handle_generate_partial_width_falls_back_to_config():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -366,7 +398,7 @@ def test_handle_generate_partial_width_explicit_resolution_uses_preset():
     cli = load_cli_without_mflux()
 
     with patch.object(cli, "load_config", return_value={}), \
-         patch.object(cli, "generate_image") as mock_gen, \
+         patch("fluxgen.cli.commands.generate_image") as mock_gen, \
          patch("fluxgen.generator.ModelManager") as mock_mm:
         mock_mm.get_model.return_value = MagicMock()
 
@@ -427,20 +459,29 @@ def test_get_version_falls_back_to_pyproject_when_distribution_missing():
     assert cli._cached_version == expected
 
 
-def test_get_version_returns_unknown_when_all_lookups_fail():
-    """When both distribution and pyproject.toml fail, return 'unknown'."""
+def test_get_version_delegates_to_fluxgen_version_when_metadata_missing():
+    """When ``importlib.metadata.distribution`` can't find the
+    package, ``_get_version`` delegates to ``fluxgen.__version__``
+    rather than reimplementing its own fallback chain.
+
+    This is the contract that keeps the CLI's ``--version`` output
+    in lockstep with what embedders see via ``import fluxgen`` — a
+    single source of truth. The drift test
+    ``test_fluxgen_fallback_literal_matches_pyproject`` keeps the
+    literal in ``fluxgen/__init__.py`` honest.
+    """
     cli = load_cli_without_mflux()
     cli._cached_version = None
 
-    # Patch distribution on the cli instance directly — patch("fluxgen.cli.distribution")
-    # re-imports cli and patches a different module object.
+    # Patch distribution to raise; ``_get_version`` should now
+    # delegate to fluxgen.__version__ (which falls back to the
+    # hard-coded literal "0.3.3" via the fluxgen package init).
     with patch.object(cli, "distribution", side_effect=FileNotFoundError("nope")):
-        # Patch Path.open so the pyproject.toml fallback also fails.
-        with patch("pathlib.Path.open", side_effect=OSError("nope")):
-            v = cli._get_version()
+        v = cli._get_version()
 
-    assert v == "unknown"
-    assert cli._cached_version == "unknown"
+    import fluxgen
+    assert v == fluxgen.__version__
+    assert cli._cached_version == fluxgen.__version__
 
 
 # ── Fast path: --help / --version skip config load ─────────────────────────────
@@ -486,3 +527,387 @@ def test_normal_command_still_loads_config():
 
     mock_load_config.assert_called_once()
     handle_generate.assert_called_once()
+
+
+# ── Cleanup pass: __version__, --true-cfg-scale, max_edit_dimension ───────
+
+
+def test_fluxgen_package_exposes_version():
+    """`import fluxgen; fluxgen.__version__` resolves via importlib.metadata."""
+    import fluxgen
+    # The venv installs fluxgen-cli at a pinned version. We only assert
+    # a non-empty string and that it parses as a SemVer-ish tuple.
+    assert isinstance(fluxgen.__version__, str)
+    assert fluxgen.__version__, "fluxgen.__version__ must not be empty"
+    # The fallback path is covered separately by
+    # test_fluxgen_package_version_falls_back_without_metadata.
+
+
+def test_fluxgen_fallback_literal_matches_pyproject():
+    """The hard-coded fallback in ``fluxgen/__init__.py`` must match
+    ``[project] version`` in pyproject.toml so source-only checkouts
+    (where importlib.metadata can't find the package) report the same
+    version as an installed venv. Locking the literal here catches the
+    next ``pyproject.toml`` bump that forgot to update the fallback.
+    """
+    import fluxgen
+    import tomllib
+
+    # Extract the fallback literal from fluxgen/__init__.py by reading
+    # the `except PackageNotFoundError` branch.
+    fluxgen_init = Path(__file__).parent.parent / "fluxgen" / "__init__.py"
+    fallback_literal = None
+    in_fallback_branch = False
+    for raw_line in fluxgen_init.read_text().splitlines():
+        if "except PackageNotFoundError" in raw_line:
+            in_fallback_branch = True
+            continue
+        if in_fallback_branch and "__version__ =" in raw_line:
+            # Match patterns like ``__version__ = "0.3.3"`` (single
+            # or double quotes; strip both).
+            quote = raw_line.split('"')[1] if '"' in raw_line else raw_line.split("'")[1]
+            fallback_literal = quote
+            break
+
+    assert fallback_literal is not None, (
+        "Could not find a `__version__ = \"...\"` assignment after "
+        "an `except PackageNotFoundError:` in fluxgen/__init__.py. "
+        "The fallback literal structure changed; update this test."
+    )
+
+    pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+    with pyproject_path.open("rb") as f:
+        pyproject_version = tomllib.load(f)["project"]["version"]
+
+    assert fallback_literal == pyproject_version, (
+        f"fluxgen/__init__.py fallback {fallback_literal!r} does not match "
+        f"pyproject.toml [project] version {pyproject_version!r}. "
+        f"Update the literal in fluxgen/__init__.py to match pyproject.toml."
+    )
+    # Sanity: the runtime __version__ should also match (assuming the
+    # venv is installed; if the fallback fired, it'd match the literal).
+    assert fluxgen.__version__ == pyproject_version
+
+
+def test_fluxgen_package_version_falls_back_without_metadata(monkeypatch):
+    """When importlib.metadata can't find the package, __version__ falls
+    back to the literal in fluxgen/__init__.py (kept in sync with
+    pyproject.toml)."""
+    import importlib
+    import sys
+
+    import fluxgen
+
+    # Save and restore the real importlib.metadata.version on reload.
+    real_version = sys.modules["fluxgen"].__version__
+
+    # Reload the package with importlib.metadata.version patched to raise.
+    class _Boom:
+        def __call__(self, *a, **kw):
+            from importlib.metadata import PackageNotFoundError
+            raise PackageNotFoundError("simulated missing metadata")
+
+    saved = importlib.metadata.version
+    importlib.metadata.version = _Boom()
+    try:
+        reloaded = importlib.reload(fluxgen)
+        # The fallback literal is "0.3.3" — locked here so the contract
+        # is grep-able alongside pyproject.toml.
+        assert reloaded.__version__ == "0.3.3"
+    finally:
+        importlib.metadata.version = saved
+        importlib.reload(fluxgen)
+    # Sanity: the restored module is back to whatever importlib says.
+    assert sys.modules["fluxgen"].__version__ == real_version
+
+
+def test_handle_edit_passes_max_dimension_from_config(tmp_path):
+    """handle_edit reads max_edit_dimension from the config dict and
+    threads it to editor.edit(max_dimension=...)."""
+    cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
+
+    args = SimpleNamespace(
+        image=[str(input_image)],
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        true_cfg_scale=4.0,
+        seed=None,
+        timer=False,
+        width=None,
+        height=None,
+    )
+
+    config = {"defaults": {"max_edit_dimension": 1024}}
+
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
+        editor = mock_editor_cls.return_value
+        cli.handle_edit(args, config=config)
+
+    assert editor.edit.call_args.kwargs["max_dimension"] == 1024
+
+
+def test_handle_edit_default_max_dimension_when_no_config(tmp_path):
+    """handle_edit falls back to MAX_EDIT_DIMENSION (1920) when no config
+    max_edit_dimension is provided."""
+    from fluxgen.editor import MAX_EDIT_DIMENSION
+
+    cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
+
+    args = SimpleNamespace(
+        image=[str(input_image)],
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        true_cfg_scale=4.0,
+        seed=None,
+        timer=False,
+        width=None,
+        height=None,
+    )
+
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
+        editor = mock_editor_cls.return_value
+        cli.handle_edit(args)  # no config
+
+    assert editor.edit.call_args.kwargs["max_dimension"] == MAX_EDIT_DIMENSION
+
+
+def test_handle_edit_invalid_max_dimension_falls_back(tmp_path, caplog):
+    """A non-int or zero/negative max_edit_dimension is ignored and the
+    default applies; a warning is logged."""
+    import logging as _logging
+
+    cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
+
+    args = SimpleNamespace(
+        image=[str(input_image)],
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        true_cfg_scale=4.0,
+        seed=None,
+        timer=False,
+        width=None,
+        height=None,
+    )
+
+    bad_configs = [
+        {"defaults": {"max_edit_dimension": "not-an-int"}},
+        {"defaults": {"max_edit_dimension": 0}},
+        {"defaults": {"max_edit_dimension": -1}},
+        # bool is a subclass of int — ``isinstance(True, int)`` is True.
+        # The CLI must reject it explicitly so a TOML
+        # ``max_edit_dimension = true`` doesn't sneak through as a
+        # legitimate value (which would later compare incorrectly in
+        # the editor's ``> max_dimension`` checks).
+        {"defaults": {"max_edit_dimension": True}},
+        {"defaults": {"max_edit_dimension": False}},
+    ]
+
+    for bad in bad_configs:
+        # Clear records so each iteration is checked in isolation;
+        # otherwise a warning logged for an earlier case would mask a
+        # silent regression in a later one.
+        caplog.clear()
+        with patch("fluxgen.editor.ImageEditor") as mock_editor_cls, \
+             caplog.at_level(_logging.WARNING, logger="fluxgen"):
+            editor = mock_editor_cls.return_value
+            cli.handle_edit(args, config=bad)
+
+        assert editor.edit.call_args.kwargs["max_dimension"] == 1920
+        assert any(
+            "max_edit_dimension" in rec.message for rec in caplog.records
+        ), f"no max_edit_dimension warning logged for config={bad!r}"
+
+
+def test_handle_edit_threads_true_cfg_scale(tmp_path):
+    """--true-cfg-scale (or args.true_cfg_scale) is forwarded to editor.edit."""
+    cli = load_cli_without_mflux()
+    input_image = tmp_path / "input.png"
+    input_image.write_bytes(b"fake")
+
+    args = SimpleNamespace(
+        image=[str(input_image)],
+        prompt="make it sunset",
+        output=None,
+        output_dir="output",
+        steps=None,
+        guidance=1.0,
+        true_cfg_scale=2.5,  # user override
+        seed=None,
+        timer=False,
+        width=None,
+        height=None,
+    )
+
+    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
+        editor = mock_editor_cls.return_value
+        cli.handle_edit(args)
+
+    assert editor.edit.call_args.kwargs["true_cfg_scale"] == 2.5
+
+
+def test_edit_parser_accepts_true_cfg_scale_flag():
+    """`fluxgen edit --true-cfg-scale 2.5 …` parses into args.true_cfg_scale."""
+    cli = load_cli_without_mflux()
+    config = {}
+
+    with patch.object(cli, "load_config", return_value=config):
+        args = cli.get_parser(config, "0.0.0-test").parse_args(
+            ["edit", "image.png", "do thing", "--true-cfg-scale", "2.5"]
+        )
+
+    assert args.command == "edit"
+    assert args.true_cfg_scale == 2.5
+
+
+# ── resolve_image_dimensions (priority chain) ──────────────────────────────
+
+
+def _make_args(**overrides):
+    """Build a minimal args namespace with the four resolution-related
+    attributes absent by default (simulating ``argparse.SUPPRESS``).
+    Tests override only the ones they want to set, which mirrors how
+    argparse leaves unset attributes off the namespace entirely.
+    """
+    args = SimpleNamespace()
+    for key in ("resolution", "width", "height"):
+        if key in overrides:
+            setattr(args, key, overrides[key])
+    return args
+
+
+def test_resolve_image_dimensions_default_when_nothing_set():
+    """No CLI flags, no config -> 512x512 default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args()
+    config = {}
+    assert resolve_image_dimensions(args, config) == (512, 512)
+
+
+def test_resolve_image_dimensions_cli_width_overrides_default():
+    """--width alone takes the width axis; height still defaults."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=800)
+    assert resolve_image_dimensions(args, {}) == (800, 512)
+
+
+def test_resolve_image_dimensions_cli_height_overrides_default():
+    """--height alone takes the height axis; width still defaults."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(height=600)
+    assert resolve_image_dimensions(args, {}) == (512, 600)
+
+
+def test_resolve_image_dimensions_cli_width_height_both_win():
+    """Both --width and --height set -> exact (w, h), ignoring everything else."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=800, height=600)
+    config = {"defaults": {"width": 1024, "height": 768}}
+    assert resolve_image_dimensions(args, config) == (800, 600)
+
+
+def test_resolve_image_dimensions_cli_resolution_wins_over_config():
+    """--resolution flag overrides config file width/height."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(resolution="large")
+    config = {"defaults": {"width": 640, "height": 480}}
+    assert resolve_image_dimensions(args, config) == (1024, 1024)
+
+
+def test_resolve_image_dimensions_config_used_when_no_cli():
+    """Config width/height used when no CLI flags are passed."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args()
+    config = {"defaults": {"width": 640, "height": 480}}
+    assert resolve_image_dimensions(args, config) == (640, 480)
+
+
+def test_resolve_image_dimensions_partial_width_falls_back_to_config_height():
+    """--width only: missing height falls back to config before default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=800)
+    config = {"defaults": {"height": 768}}
+    assert resolve_image_dimensions(args, config) == (800, 768)
+
+
+def test_resolve_image_dimensions_partial_height_falls_back_to_config_width():
+    """--height only: missing width falls back to config before default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(height=768)
+    config = {"defaults": {"width": 800}}
+    assert resolve_image_dimensions(args, config) == (800, 768)
+
+
+def test_resolve_image_dimensions_partial_width_with_resolution_uses_preset():
+    """--width only + explicit --resolution: missing height uses preset, not config."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(resolution="full", width=800)
+    config = {"defaults": {"height": 768}}
+    assert resolve_image_dimensions(args, config) == (800, 1536)
+
+
+def test_resolve_image_dimensions_partial_width_no_resolution_no_config():
+    """--width only, no --resolution, no config height -> 512 default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=800)
+    assert resolve_image_dimensions(args, {}) == (800, 512)
+
+
+def test_resolve_image_dimensions_partial_height_no_resolution_no_config():
+    """--height only, no --resolution, no config width -> 512 default."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(height=600)
+    assert resolve_image_dimensions(args, {}) == (512, 600)
+
+
+def test_resolve_image_dimensions_partial_width_with_resolution_no_config():
+    """--width only + --resolution: height comes from preset, not 512."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(resolution="16:9", width=960)
+    assert resolve_image_dimensions(args, {}) == (960, 544)
+
+
+def test_resolve_image_dimensions_aspect_ratio_preset():
+    """Aspect-ratio presets (e.g. 9:16) resolve correctly."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(resolution="9:16")
+    assert resolve_image_dimensions(args, {}) == (544, 960)
+
+
+def test_resolve_image_dimensions_treats_zero_as_explicit_value():
+    """A user-supplied --width 0 (legal but silly) should NOT be
+    treated as 'unset' — argparse stores 0 as the integer 0, not as
+    a sentinel. The original implementation used truthy checks that
+    silently coerced 0 to the default; this regression test guards
+    against that reappearing."""
+    from fluxgen.cli.commands import resolve_image_dimensions
+
+    args = _make_args(width=0)
+    assert resolve_image_dimensions(args, {}) == (0, 512)

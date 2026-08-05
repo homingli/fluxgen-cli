@@ -1,4 +1,7 @@
+import logging
 from typing import Dict, Optional, List
+
+logger = logging.getLogger("fluxgen")
 
 class StyleManager:
     """Manages prompt styling."""
@@ -22,12 +25,22 @@ class StyleManager:
     def apply_style(self, prompt: str, style_name: str) -> str:
         if not style_name or style_name.lower() == "none":
             return prompt
-            
-        suffix = self.styles.get(style_name.lower())
+
+        key = style_name.lower()
+        suffix = self.styles.get(key)
         if suffix is None:
-            # If style not found, treat it as "none"
+            # Unknown styles used to be silently swallowed (treated as
+            # "none"), which turned typos like `--style gehibli` into
+            # no-ops instead of surfacing the error. We keep the
+            # fall-through behavior so a bad style does NOT mutate the
+            # prompt, but emit a warning so the cause is visible.
+            valid = ", ".join(sorted(self.styles))
+            logger.warning(
+                f"Unknown style '{style_name}'. Valid styles: {valid}. "
+                f"Treating as no style."
+            )
             return prompt
-            
+
         return f"{prompt}{suffix}"
 
     def get_style_names(self) -> List[str]:
