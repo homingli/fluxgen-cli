@@ -113,6 +113,13 @@ SUPPORTED_EDIT_MODELS: tuple[str, ...] = tuple(
     name for name, spec in MODELS.items() if "edit" in spec.capabilities
 )
 
+# Stale ids that may still appear in older `.fluxgen.toml` / MCP configs.
+# Remap or drop at config-load time; CLI has no aliases (argparse rejects).
+EDIT_MODEL_RENAMES: dict[str, str] = {
+    "flux2-klein": "flux2-klein-edit",
+}
+REMOVED_EDIT_MODELS: frozenset[str] = frozenset({"qwen-image-edit"})
+
 # Backward-compatible aliases used by existing CLI / MCP import sites.
 DEFAULT_MODEL = DEFAULT_GENERATION_MODEL
 SUPPORTED_MODELS = list(SUPPORTED_GENERATION_MODELS)

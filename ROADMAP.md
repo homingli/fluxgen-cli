@@ -19,8 +19,8 @@ cleanly (currently `>=0.19.0` candidate).
 **Once available, do:**
 
 1. `pyproject.toml`: bump `mflux>=0.18.0` to the new floor
-2. `fluxgen/generator.py`:
-   - Add `"krea2"` to the model registry in `fluxgen/models.py`
+2. `fluxgen/models.py`:
+   - Add `"krea2"` to the model registry
      (`capabilities={"generate"}`, `guidance=1.0`, `steps=8`, factory)
 3. `tests/test_cli.py`: extend `load_cli_without_mflux` fixture's generation model list
 4. `README.md`: document the new model, recommended `--steps 8 --quantize 8`, ~24 GB

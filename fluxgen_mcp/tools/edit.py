@@ -23,7 +23,12 @@ from typing import Any
 
 from fluxgen.editor import ImageEditor
 from fluxgen.generator import generate_random_filename
-from fluxgen.models import DEFAULT_EDIT_MODEL, SUPPORTED_EDIT_MODELS
+from fluxgen.models import (
+    DEFAULT_EDIT_MODEL,
+    EDIT_MODEL_RENAMES,
+    REMOVED_EDIT_MODELS,
+    SUPPORTED_EDIT_MODELS,
+)
 
 from fluxgen_mcp.config import MCPSettings
 from fluxgen_mcp.errors import E_BAD_ARG, E_MODEL, MCPError, EXCEPTION_MAP
@@ -31,6 +36,14 @@ from fluxgen_mcp.safety import check_pause, resolve_sandbox_output, validate_pro
 from fluxgen_mcp.validation import validate_edit_inputs
 
 logger = logging.getLogger("fluxgen-mcp")
+
+
+def _edit_model_error_hint(model_name: str) -> str:
+    if model_name in EDIT_MODEL_RENAMES:
+        return f" (renamed to {EDIT_MODEL_RENAMES[model_name]!r})"
+    if model_name in REMOVED_EDIT_MODELS:
+        return f" (removed; use {DEFAULT_EDIT_MODEL!r})"
+    return ""
 
 
 def _resolve_seed(seed: int | None) -> int:
@@ -112,14 +125,16 @@ async def edit_image_tool(
 
     target_model = model or DEFAULT_EDIT_MODEL
     if target_model not in settings.allowed_edit_models:
+        hint = _edit_model_error_hint(target_model)
         raise MCPError(
             E_BAD_ARG,
-            f"model {target_model!r} not in allowed_edit_models",
+            f"model {target_model!r} not in allowed_edit_models{hint}",
         )
     if target_model not in SUPPORTED_EDIT_MODELS:
+        hint = _edit_model_error_hint(target_model)
         raise MCPError(
             E_BAD_ARG,
-            f"model {target_model!r} not supported by fluxgen-cli",
+            f"model {target_model!r} not supported by fluxgen-cli{hint}",
         )
 
     if not input_paths:

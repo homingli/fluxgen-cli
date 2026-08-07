@@ -32,6 +32,12 @@ def test_editor_rejects_unknown_model():
         ImageEditor(model_name="qwen-image-edit")
 
 
+def test_editor_rejects_legacy_flux2_klein_id():
+    """Bare ``flux2-klein`` is not an alias; must fail closed."""
+    with pytest.raises(ValueError, match="Unsupported model"):
+        ImageEditor(model_name="flux2-klein")
+
+
 def test_editor_missing_input_fails_before_model_load(tmp_path):
     editor = ImageEditor()
     editor.load = MagicMock()

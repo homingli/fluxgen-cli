@@ -1,7 +1,7 @@
 """Tests for the generate_image tool wrapper.
 
 The underlying `fluxgen.generator.generate_image` is mocked at the
-import seam so the tests don't load mflux / torch.
+import seam so the tests don't load mflux.
 """
 from __future__ import annotations
 

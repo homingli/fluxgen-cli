@@ -740,6 +740,18 @@ def test_edit_parser_default_model_is_flux2_klein_edit():
     assert args.model == "flux2-klein-edit"
 
 
+def test_edit_parser_rejects_legacy_flux2_klein_id():
+    """Bare ``flux2-klein`` is not accepted (no alias)."""
+    cli = load_cli_without_mflux()
+    config = {}
+
+    with patch.object(cli, "load_config", return_value=config), \
+         pytest.raises(SystemExit):
+        cli.get_parser(config, "0.0.0-test").parse_args(
+            ["edit", "image.png", "do thing", "--model", "flux2-klein"]
+        )
+
+
 # ── resolve_image_dimensions (priority chain) ──────────────────────────────
 
 

@@ -16,7 +16,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Pattern
 
-from fluxgen.models import SUPPORTED_EDIT_MODELS, SUPPORTED_GENERATION_MODELS
+from fluxgen.models import (
+    EDIT_MODEL_RENAMES,
+    REMOVED_EDIT_MODELS,
+    SUPPORTED_EDIT_MODELS,
+    SUPPORTED_GENERATION_MODELS,
+)
 
 logger = logging.getLogger("fluxgen-mcp")
 
@@ -116,6 +121,36 @@ def _coerce(value, default):
     return value
 
 
+def _normalize_edit_models(models: tuple[str, ...]) -> tuple[str, ...]:
+    """Remap/drop stale edit model ids from older configs.
+
+    ``flux2-klein`` → ``flux2-klein-edit`` (rename).
+    ``qwen-image-edit`` → dropped (removed; no replacement in allowlist).
+    """
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for name in models:
+        if name in REMOVED_EDIT_MODELS:
+            logger.warning(
+                "edit model %r was removed; dropping from allowed_edit_models. "
+                "Supported: %s",
+                name,
+                ", ".join(SUPPORTED_EDIT_MODELS),
+            )
+            continue
+        mapped = EDIT_MODEL_RENAMES.get(name, name)
+        if mapped != name:
+            logger.warning(
+                "edit model %r was renamed to %r; updating allowed_edit_models",
+                name,
+                mapped,
+            )
+        if mapped not in seen:
+            normalized.append(mapped)
+            seen.add(mapped)
+    return tuple(normalized)
+
+
 def load_mcp_settings() -> MCPSettings:
     """Load `[mcp]` from `.fluxgen.toml` in cwd and home.
 
@@ -146,6 +181,10 @@ def load_mcp_settings() -> MCPSettings:
         for key, default in DEFAULTS.items():
             if key in section:
                 merged[key] = _coerce(section[key], default)
+
+    merged["allowed_edit_models"] = _normalize_edit_models(
+        tuple(merged["allowed_edit_models"])
+    )
 
     # Precompile blocklist patterns. Invalid regex strings are
     # dropped here (with a warning) so a typo in the config does

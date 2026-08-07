@@ -1,6 +1,6 @@
 """Tests for fluxgen.generator helpers — filename generation, model registry."""
 import re
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -147,6 +147,58 @@ def test_resolve_inference_params_explicit_kwargs_win():
     )
     assert steps == 12
     assert guidance == 2.5
+
+
+def test_generate_image_passes_model_default_guidance_when_preset_none(tmp_path):
+    """End-to-end: ``asdict(Preset)`` guidance=None must become zimage's 4.0."""
+    from fluxgen.generator import generate_image
+
+    mock_model = MagicMock()
+    mock_result = MagicMock()
+    mock_result.image = MagicMock()
+    mock_model.generate_image.return_value = mock_result
+
+    out = tmp_path / "out.png"
+    generate_image(
+        prompt="a fox",
+        preset={"steps": 9, "guidance": None, "quantize": 8},
+        seed=1,
+        output=str(out),
+        width=64,
+        height=64,
+        style="none",
+        model_name="zimage",
+        model=mock_model,
+    )
+
+    kwargs = mock_model.generate_image.call_args.kwargs
+    assert kwargs["guidance"] == 4.0
+    assert kwargs["num_inference_steps"] == 9
+    mock_result.image.save.assert_called_once()
+
+
+def test_generate_image_omits_guidance_for_turbo(tmp_path):
+    from fluxgen.generator import generate_image
+
+    mock_model = MagicMock()
+    mock_result = MagicMock()
+    mock_result.image = MagicMock()
+    mock_model.generate_image.return_value = mock_result
+
+    generate_image(
+        prompt="a fox",
+        preset={"steps": 4, "guidance": None, "quantize": 8},
+        seed=1,
+        output=str(tmp_path / "out.png"),
+        width=64,
+        height=64,
+        style="none",
+        model_name="zimage-turbo",
+        model=mock_model,
+    )
+
+    kwargs = mock_model.generate_image.call_args.kwargs
+    assert "guidance" not in kwargs
 
 
 def test_require_capability_rejects_wrong_capability():

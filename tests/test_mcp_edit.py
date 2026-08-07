@@ -115,6 +115,27 @@ async def test_edit_rejects_model_not_in_whitelist(tmp_path: Path, mock_editor):
             output_subdir="default",
         )
     assert exc.value.code == E_BAD_ARG
+    assert "removed" in exc.value.message
+
+
+async def test_edit_rejects_legacy_flux2_klein_with_rename_hint(tmp_path: Path, mock_editor):
+    s = _settings(tmp_path, allowed_edit_models=(DEFAULT_EDIT_MODEL,))
+    inp = _make_png(tmp_path / "input.png", (100, 100))
+    with pytest.raises(MCPError) as exc:
+        await edit_image_tool(
+            settings=s,
+            input_paths=[str(inp)],
+            prompt="x",
+            model="flux2-klein",
+            seed=None,
+            steps=None,
+            guidance=None,
+            width=None,
+            height=None,
+            output_subdir="default",
+        )
+    assert exc.value.code == E_BAD_ARG
+    assert "renamed to 'flux2-klein-edit'" in exc.value.message
 
 
 async def test_edit_rejects_oversized_input(tmp_path: Path, mock_editor):
