@@ -9,9 +9,9 @@ context manager, and the resolution priority chain
 
 Why split this off: the generate and edit flows are the only place
 that imports the heavyweight ``fluxgen.editor`` and
-``fluxgen.generator`` modules (model loaders, diffusers, mflux). By
-isolating that here, ``cli/__init__.py`` stays light enough to import
-during ``--help`` / ``--version`` fast-paths without paying the
+``fluxgen.generator`` modules (model loaders, mflux). By isolating
+that here, ``cli/__init__.py`` stays light enough to import during
+``--help`` / ``--version`` fast-paths without paying the
 heavy-import cost, and ``handle_interactive`` can import only what
 it actually needs.
 """
@@ -26,7 +26,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fluxgen.config import get_config_value
-from fluxgen.editor import EDIT_DEFAULT_TRUE_CFG, MAX_EDIT_DIMENSION
+from fluxgen.editor import MAX_EDIT_DIMENSION
 from fluxgen.exceptions import FluxgenError, PathTraversalError
 from fluxgen.generator import (
     DEFAULT_MODEL,
@@ -35,6 +35,7 @@ from fluxgen.generator import (
     generate_image,
     generate_random_filename,
 )
+from fluxgen.models import DEFAULT_EDIT_MODEL, SUPPORTED_EDIT_MODELS
 from fluxgen.presets import ALL_RESOLUTION_PRESETS, PRESETS, PRESETS_BY_NAME
 
 from fluxgen.cli.presets_arg import (
@@ -197,7 +198,7 @@ def add_edit_parser(subparsers, verbosity_parent, config):
     """Attach the ``edit`` subparser to ``subparsers``."""
     edit_parser = subparsers.add_parser(
         "edit",
-        help="Edit an image using instructions (Qwen-Image-Edit)",
+        help="Edit an image using natural-language instructions",
         parents=[verbosity_parent],
     )
     edit_parser.add_argument("image", nargs="+", help="Path to the input image(s)")
@@ -211,22 +212,17 @@ def add_edit_parser(subparsers, verbosity_parent, config):
         help="Output directory (default: output)",
     )
     edit_parser.add_argument(
-        "--model", type=str, choices=["qwen-image-edit", "flux2-klein"],
-        default="flux2-klein",
-        help="Model to use for editing (default: flux2-klein)",
+        "--model", type=str, choices=list(SUPPORTED_EDIT_MODELS),
+        default=DEFAULT_EDIT_MODEL,
+        help=f"Model to use for editing (default: {DEFAULT_EDIT_MODEL})",
     )
-    edit_parser.add_argument("--quantize", type=int, help="Override quantize for flux2-klein")
+    edit_parser.add_argument(
+        "--quantize", type=int,
+        help=f"Override quantize for {DEFAULT_EDIT_MODEL}",
+    )
     edit_parser.add_argument("--seed", type=int, help="Random seed")
     edit_parser.add_argument("--steps", type=int, default=None, help="Override inference steps")
     edit_parser.add_argument("--guidance", type=float, default=None, help="Guidance scale")
-    edit_parser.add_argument(
-        "--true-cfg-scale", type=float, default=EDIT_DEFAULT_TRUE_CFG,
-        dest="true_cfg_scale",
-        help=(
-            f"true_cfg_scale override (Qwen-Image-Edit only; flux2-klein ignores). "
-            f"Default: {EDIT_DEFAULT_TRUE_CFG}."
-        ),
-    )
     edit_parser.add_argument(
         "--width", type=int,
         help="Output image width (defaults to input image width)",
@@ -393,20 +389,17 @@ def handle_edit(args, config=None, interactive=False):
     with error_handler(args, interactive):
         # ``ImageEditor`` is imported lazily here rather than at the
         # top of the module. ``fluxgen.editor`` is already loaded by
-        # the time we reach this function (EDIT_DEFAULT_TRUE_CFG and
-        # MAX_EDIT_DIMENSION are top-level imports), so the lazy
-        # import isn't about deferred loading — it's about test
-        # isolation: tests patch ``fluxgen.editor.ImageEditor`` via
-        # ``with patch(...)`` and the lazy import resolves through
-        # the module attribute at call time, picking up the mock.
-        # A top-level ``from fluxgen.editor import ImageEditor``
-        # would capture the real class at module load time and the
-        # patch wouldn't take effect.
+        # the time we reach this function (MAX_EDIT_DIMENSION is a
+        # top-level import), so the lazy import isn't about deferred
+        # loading — it's about test isolation: tests patch
+        # ``fluxgen.editor.ImageEditor`` via ``with patch(...)`` and
+        # the lazy import resolves through the module attribute at
+        # call time, picking up the mock. A top-level
+        # ``from fluxgen.editor import ImageEditor`` would capture
+        # the real class at module load time and the patch wouldn't
+        # take effect.
         from fluxgen.editor import ImageEditor
 
-        # Resolve max_dimension from config, falling back to the
-        # package default. ``config`` is optional so the test suite
-        # can call ``handle_edit(args)`` without constructing a full
         # Resolve max_dimension from config, falling back to the
         # package default. ``config`` is optional so the test suite
         # can call ``handle_edit(args)`` without constructing a full
@@ -432,7 +425,7 @@ def handle_edit(args, config=None, interactive=False):
         # Cheap path checks (existence + is_file) duplicated from
         # ``ImageEditor._resolve_and_validate_inputs``: lets us
         # fail-fast before constructing the editor + loading the
-        # pipeline below. The editor re-runs these plus a full PIL
+        # model below. The editor re-runs these plus a full PIL
         # integrity check.
         input_paths = [Path(img).expanduser().resolve() for img in args.image]
         for p in input_paths:
@@ -456,14 +449,14 @@ def handle_edit(args, config=None, interactive=False):
 
         output_path = resolve_output_path(args.output, args.output_dir, generate_edit_filename)
 
-        model_name = getattr(args, "model", "flux2-klein")
+        model_name = getattr(args, "model", DEFAULT_EDIT_MODEL)
         quantize = getattr(args, "quantize", None)
         seed = getattr(args, "seed", None)
 
         editor = ImageEditor(model_name=model_name, quantize=quantize)
 
         # Pre-load model before timer starts
-        editor._load_pipeline()
+        editor.load()
 
         logger.info(f"Applying edit: '{args.prompt}'")
         start = time.perf_counter() if getattr(args, "timer", True) else None
@@ -473,10 +466,6 @@ def handle_edit(args, config=None, interactive=False):
             output_path=output_path,
             steps=args.steps,
             guidance_scale=args.guidance,
-            # ``add_edit_parser`` sets ``default=EDIT_DEFAULT_TRUE_CFG``
-            # so ``args.true_cfg_scale`` is always present — no
-            # ``getattr`` fallback needed.
-            true_cfg_scale=args.true_cfg_scale,
             seed=seed,
             width=args.width,
             height=args.height,

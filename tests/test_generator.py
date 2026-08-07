@@ -1,4 +1,4 @@
-"""Tests for fluxgen.generator helpers — filename generation, model dispatch."""
+"""Tests for fluxgen.generator helpers — filename generation, model registry."""
 import re
 from unittest.mock import patch
 
@@ -6,10 +6,18 @@ import pytest
 
 from fluxgen.generator import (
     DEFAULT_MODEL,
-    MODEL_DEFAULTS,
     SUPPORTED_MODELS,
     _timestamp_filename,
     generate_random_filename,
+)
+from fluxgen.models import (
+    DEFAULT_EDIT_MODEL,
+    MODELS,
+    SUPPORTED_EDIT_MODELS,
+    SUPPORTED_GENERATION_MODELS,
+    get_model_spec,
+    require_capability,
+    resolve_inference_params,
 )
 
 
@@ -45,13 +53,7 @@ def test_generate_random_filename_fallback_when_random_words_raises():
 
 
 def test_generate_random_filename_no_collision_under_load():
-    """100 consecutive fallback calls produce 100 unique filenames.
-
-    The bug being fixed: `int(time.time())` had 1-second resolution, so
-    two generations in the same second produced the same filename. With
-    millisecond resolution + random suffix, collisions are essentially
-    impossible.
-    """
+    """100 consecutive fallback calls produce 100 unique filenames."""
     with patch("fluxgen.generator._random_word", None):
         fns = [generate_random_filename() for _ in range(100)]
 
@@ -91,7 +93,7 @@ def test_timestamp_filename_unique_across_calls():
     assert len(fns) == 50
 
 
-# ── Module-level constants (sanity) ───────────────────────────────────────────
+# ── Model registry ─────────────────────────────────────────────────────────────
 
 
 def test_supported_models_are_non_empty_strings():
@@ -105,12 +107,53 @@ def test_default_model_is_in_supported_models():
     assert DEFAULT_MODEL in SUPPORTED_MODELS
 
 
-def test_model_defaults_keys_are_subset_of_supported_models():
-    """Every model with defaults listed should be a supported model."""
-    extra = set(MODEL_DEFAULTS.keys()) - set(SUPPORTED_MODELS)
-    # 'flux2-klein-edit' is used by edit command and isn't in generation SUPPORTED_MODELS
-    extra -= {"flux2-klein-edit"}
-    assert not extra, f"MODEL_DEFAULTS has unknown keys: {extra}"
+def test_generation_and_edit_lists_partition_registry():
+    assert set(SUPPORTED_GENERATION_MODELS) | set(SUPPORTED_EDIT_MODELS) == set(MODELS)
+    assert set(SUPPORTED_GENERATION_MODELS).isdisjoint(SUPPORTED_EDIT_MODELS)
+    assert DEFAULT_EDIT_MODEL in SUPPORTED_EDIT_MODELS
+    assert DEFAULT_EDIT_MODEL not in SUPPORTED_GENERATION_MODELS
+
+
+def test_resolve_inference_params_uses_spec_when_preset_guidance_is_none():
+    """Preset dataclasses always serialize guidance=None; that must not
+    shadow the model default.
+    """
+    spec = get_model_spec("zimage")
+    steps, guidance = resolve_inference_params(
+        spec,
+        preset={"steps": 9, "guidance": None, "quantize": 8},
+    )
+    assert steps == 9
+    assert guidance == 4.0
+
+
+def test_resolve_inference_params_skips_guidance_for_turbo():
+    spec = get_model_spec("zimage-turbo")
+    steps, guidance = resolve_inference_params(
+        spec,
+        preset={"steps": None, "guidance": None},
+    )
+    assert steps == 4
+    assert guidance is None
+
+
+def test_resolve_inference_params_explicit_kwargs_win():
+    spec = get_model_spec("flux2-klein9b")
+    steps, guidance = resolve_inference_params(
+        spec,
+        steps=12,
+        guidance=2.5,
+        preset={"steps": 4, "guidance": 3.5},
+    )
+    assert steps == 12
+    assert guidance == 2.5
+
+
+def test_require_capability_rejects_wrong_capability():
+    with pytest.raises(ValueError, match="does not support edit"):
+        require_capability("zimage", "edit")
+    with pytest.raises(ValueError, match="does not support generate"):
+        require_capability(DEFAULT_EDIT_MODEL, "generate")
 
 
 if __name__ == "__main__":

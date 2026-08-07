@@ -39,7 +39,7 @@ def _settings(tmp_path: Path, **overrides) -> MCPSettings:
         max_queue_depth=4,
         per_call_timeout_s=600.0,
         allowed_generation_models=("zimage-turbo",),
-        allowed_edit_models=("flux2-klein",),
+        allowed_edit_models=("flux2-klein-edit",),
         prompt_blocklist=(),
         audit_log_path=str(tmp_path / "audit.log"),
         pause_sentinel_path=str(tmp_path / "paused"),
@@ -122,7 +122,7 @@ async def test_edit_success_writes_audit_record_with_input_paths(
         def fake_edit(*, image_paths, prompt, output_path, **_):
             Image.new("RGB", (1, 1), (255, 255, 255)).save(output_path)
 
-        inst._load_pipeline = MagicMock()
+        inst.load = MagicMock()
         inst.edit = MagicMock(side_effect=fake_edit)
         return inst
 

@@ -16,6 +16,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Pattern
 
+from fluxgen.models import SUPPORTED_EDIT_MODELS, SUPPORTED_GENERATION_MODELS
+
 logger = logging.getLogger("fluxgen-mcp")
 
 DEFAULT_CONFIG_FILENAME = ".fluxgen.toml"
@@ -31,13 +33,8 @@ DEFAULTS = {
     "max_concurrent_jobs": 1,
     "max_queue_depth": 4,
     "per_call_timeout_s": 600.0,
-    "allowed_generation_models": (
-        "zimage-turbo",
-        "zimage",
-        "flux2-klein4b",
-        "flux2-klein9b",
-    ),
-    "allowed_edit_models": ("flux2-klein", "qwen-image-edit"),
+    "allowed_generation_models": SUPPORTED_GENERATION_MODELS,
+    "allowed_edit_models": SUPPORTED_EDIT_MODELS,
     "prompt_blocklist": (),
     "audit_log_path": "~/.fluxgen-mcp-audit.log",
     "pause_sentinel_path": "~/.fluxgen-mcp-paused",

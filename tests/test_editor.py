@@ -1,180 +1,40 @@
+"""Tests for fluxgen.editor — input validation and mflux edit wiring."""
+from unittest.mock import MagicMock, patch
+
 import pytest
-import torch
-from unittest.mock import ANY, MagicMock, patch
-from pathlib import Path
-from fluxgen.editor import ImageEditor, EDIT_DEFAULT_STEPS, EDIT_DEFAULT_GUIDANCE, EDIT_DEFAULT_TRUE_CFG
+
+from fluxgen.editor import ImageEditor, MAX_EDIT_DIMENSION
+from fluxgen.models import DEFAULT_EDIT_MODEL
+
+
 @pytest.fixture(autouse=True)
-def reset_editor_cache():
-    ImageEditor._cached_qwen_pipe = None
-    from fluxgen.generator import ModelManager
+def reset_model_cache():
+    from fluxgen.models import ModelManager
+
     ModelManager.reset()
     yield
-    ImageEditor._cached_qwen_pipe = None
     ModelManager.reset()
 
 
-
-def test_editor_device_selection():
-    with patch("torch.backends.mps.is_available", return_value=True):
-        editor = ImageEditor()
-        assert editor._get_device() == "mps"
-
-    with patch("torch.backends.mps.is_available", return_value=False), \
-         patch("torch.cuda.is_available", return_value=True):
-        editor = ImageEditor()
-        assert editor._get_device() == "cuda"
-
-    with patch("torch.backends.mps.is_available", return_value=False), \
-         patch("torch.cuda.is_available", return_value=False):
-        editor = ImageEditor()
-        assert editor._get_device() == "cpu"
-
-
-def test_editor_defaults():
-    """Verify the module-level defaults are sane."""
-    assert EDIT_DEFAULT_STEPS == 10
-    assert EDIT_DEFAULT_GUIDANCE == 1.0
-    assert EDIT_DEFAULT_TRUE_CFG == 4.0
-
-
-def test_editor_compute_dtype_uses_bfloat16_on_accelerators():
+def test_editor_defaults_to_flux2_klein_edit():
     editor = ImageEditor()
-
-    editor.device = "mps"
-    assert editor._get_compute_dtype() == torch.bfloat16
-
-    editor.device = "cuda"
-    assert editor._get_compute_dtype() == torch.bfloat16
-
-    editor.device = "cpu"
-    assert editor._get_compute_dtype() == torch.float32
+    assert editor.model_name == DEFAULT_EDIT_MODEL
+    assert editor.mflux_model is None
 
 
-def test_editor_init_no_pipeline_loaded():
-    """Pipeline should not be loaded on construction."""
+def test_editor_rejects_generation_only_model():
+    with pytest.raises(ValueError, match="does not support edit"):
+        ImageEditor(model_name="zimage-turbo")
+
+
+def test_editor_rejects_unknown_model():
+    with pytest.raises(ValueError, match="Unsupported model"):
+        ImageEditor(model_name="qwen-image-edit")
+
+
+def test_editor_missing_input_fails_before_model_load(tmp_path):
     editor = ImageEditor()
-    assert editor.pipe is None
-
-
-@patch("fluxgen.editor.hf_hub_download")
-@patch("diffusers.QwenImageEditPlusPipeline")
-@patch("diffusers.QwenImageTransformer2DModel")
-@patch("diffusers.GGUFQuantizationConfig")
-@patch("PIL.Image.open")
-def test_editor_edit_flow(mock_image_open, mock_gguf_config, mock_transformer_cls, mock_pipeline_cls, mock_hf_download, tmp_path):
-    """Verify the full edit flow wires up correctly."""
-    input_image = tmp_path / "dummy.png"
-    input_image.write_bytes(b"fake")
-
-    # Setup mocks
-    mock_hf_download.return_value = "/tmp/dummy.gguf"
-    mock_transformer = MagicMock()
-    mock_transformer_cls.from_single_file.return_value = mock_transformer
-
-    mock_pipeline = MagicMock()
-    mock_pipeline_cls.from_pretrained.return_value = mock_pipeline
-
-    mock_output_image = MagicMock()
-    mock_output_image.convert.return_value.getextrema.return_value = ((0, 255), (0, 255), (0, 255))
-    mock_pipeline.return_value.images = [mock_output_image]
-
-    mock_input_image = MagicMock()
-    mock_input_image.size = (512, 512)
-    mock_image_open.return_value.__enter__.return_value = mock_input_image
-    mock_image_open.return_value.convert.return_value = mock_input_image
-
-    # Initialize editor and force CPU
-    editor = ImageEditor(model_name="qwen-image-edit")
-    editor.device = "cpu"
-
-    # Run edit with explicit steps
-    editor.edit(
-        image_paths=[str(input_image)],
-        prompt="make it red",
-        output_path="output/edited.png",
-        steps=10,
-    )
-
-    # Verify transformer was loaded from local path (after download)
-    mock_hf_download.assert_called_once()
-    mock_transformer_cls.from_single_file.assert_called_once_with(
-        "/tmp/dummy.gguf",
-        quantization_config=mock_gguf_config.return_value,
-        config="Qwen/Qwen-Image-Edit-2511",
-        subfolder="transformer",
-        torch_dtype=ANY,
-    )
-
-    # Verify output was saved
-    mock_output_image.save.assert_called_once()
-
-
-@patch("PIL.Image.open")
-def test_editor_rejects_blank_black_output(mock_image_open, tmp_path):
-    input_image = tmp_path / "dummy.png"
-    input_image.write_bytes(b"fake")
-
-    editor = ImageEditor(model_name="qwen-image-edit")
-    editor.pipe = MagicMock()
-
-    mock_input_image = MagicMock()
-    mock_input_image.size = (512, 512)
-    mock_image_open.return_value.__enter__.return_value = mock_input_image
-    mock_image_open.return_value.convert.return_value = mock_input_image
-
-    mock_output_image = MagicMock()
-    mock_output_image.convert.return_value.getextrema.return_value = ((0, 0), (0, 0), (0, 0))
-    editor.pipe.return_value.images = [mock_output_image]
-
-    with pytest.raises(RuntimeError, match="invalid/blank output"):
-        editor.edit(
-            image_paths=[str(input_image)],
-            prompt="test",
-            output_path="output/out.png",
-        )
-
-    mock_output_image.save.assert_not_called()
-
-
-@patch("fluxgen.editor.hf_hub_download")
-@patch("diffusers.QwenImageEditPlusPipeline")
-@patch("diffusers.QwenImageTransformer2DModel")
-@patch("diffusers.GGUFQuantizationConfig")
-@patch("PIL.Image.open")
-def test_editor_uses_default_steps(mock_image_open, mock_gguf_config, mock_transformer_cls, mock_pipeline_cls, mock_hf_download, tmp_path):
-    """When no steps are provided, the default (40) should be used."""
-    input_image = tmp_path / "dummy.png"
-    input_image.write_bytes(b"fake")
-
-    mock_hf_download.return_value = "/tmp/dummy.gguf"
-    mock_transformer_cls.from_single_file.return_value = MagicMock()
-    mock_pipeline = MagicMock()
-    mock_pipeline_cls.from_pretrained.return_value = mock_pipeline
-    mock_output_image = MagicMock()
-    mock_output_image.convert.return_value.getextrema.return_value = ((0, 255), (0, 255), (0, 255))
-    mock_pipeline.return_value.images = [mock_output_image]
-    mock_input_image = MagicMock()
-    mock_input_image.size = (512, 512)
-    mock_image_open.return_value.__enter__.return_value = mock_input_image
-    mock_image_open.return_value.convert.return_value = mock_input_image
-
-    editor = ImageEditor(model_name="qwen-image-edit")
-    editor.device = "cpu"
-
-    # Call without specifying steps — should use EDIT_DEFAULT_STEPS
-    editor.edit(
-        image_paths=[str(input_image)],
-        prompt="test",
-        output_path="output/out.png",
-    )
-
-    infer_kwargs = mock_pipeline.call_args.kwargs
-    assert infer_kwargs["num_inference_steps"] == EDIT_DEFAULT_STEPS
-
-
-def test_editor_missing_input_fails_before_pipeline_load(tmp_path):
-    editor = ImageEditor(model_name="qwen-image-edit")
-    editor._load_pipeline = MagicMock()
+    editor.load = MagicMock()
     missing_image = tmp_path / "missing.png"
 
     with pytest.raises(FileNotFoundError, match="Input image not found"):
@@ -184,7 +44,75 @@ def test_editor_missing_input_fails_before_pipeline_load(tmp_path):
             output_path="output/out.png",
         )
 
-    editor._load_pipeline.assert_not_called()
+    editor.load.assert_not_called()
+
+
+@patch("fluxgen.models.ModelManager.get_model")
+def test_editor_edit_flow_uses_mflux(mock_get_model, tmp_path):
+    from PIL import Image as PILImage
+
+    input_image = tmp_path / "dummy.png"
+    PILImage.new("RGB", (512, 512), "red").save(input_image)
+    output_image = tmp_path / "out.png"
+
+    mock_model = MagicMock()
+    mock_result = MagicMock()
+    mock_result.image = MagicMock()
+    mock_model.generate_image.return_value = mock_result
+    mock_get_model.return_value = mock_model
+
+    editor = ImageEditor()
+    editor.edit(
+        image_paths=[str(input_image)],
+        prompt="make it red",
+        output_path=str(output_image),
+        steps=6,
+        guidance_scale=2.0,
+        seed=123,
+    )
+
+    mock_get_model.assert_called_once_with(
+        model_name=DEFAULT_EDIT_MODEL,
+        quantize=None,
+    )
+    kwargs = mock_model.generate_image.call_args.kwargs
+    assert kwargs["prompt"] == "make it red"
+    assert kwargs["num_inference_steps"] == 6
+    assert kwargs["guidance"] == 2.0
+    assert kwargs["seed"] == 123
+    assert kwargs["width"] == 512
+    assert kwargs["height"] == 512
+    mock_result.image.save.assert_called_once()
+
+
+@patch("fluxgen.models.ModelManager.get_model")
+def test_editor_uses_model_defaults_when_steps_guidance_omitted(mock_get_model, tmp_path):
+    from PIL import Image as PILImage
+
+    input_image = tmp_path / "dummy.png"
+    PILImage.new("RGB", (256, 256), "blue").save(input_image)
+
+    mock_model = MagicMock()
+    mock_result = MagicMock()
+    mock_result.image = MagicMock()
+    mock_model.generate_image.return_value = mock_result
+    mock_get_model.return_value = mock_model
+
+    editor = ImageEditor()
+    editor.edit(
+        image_paths=[str(input_image)],
+        prompt="test",
+        output_path=str(tmp_path / "out.png"),
+        seed=1,
+    )
+
+    kwargs = mock_model.generate_image.call_args.kwargs
+    assert kwargs["num_inference_steps"] == 4
+    assert kwargs["guidance"] == 1.0
+
+
+def test_max_edit_dimension_constant():
+    assert MAX_EDIT_DIMENSION == 1920
 
 
 # ── _resolve_and_validate_inputs ──────────────────────────────────────────────────────
@@ -199,7 +127,7 @@ def test_resolve_and_validate_inputs_returns_first_image_size(tmp_path):
     PILImage.new("RGB", (640, 480), "red").save(image_a)
     PILImage.new("RGB", (1024, 768), "blue").save(image_b)
 
-    editor = ImageEditor(model_name="flux2-klein")
+    editor = ImageEditor()
     paths, size = editor._resolve_and_validate_inputs([str(image_a), str(image_b)])
 
     assert len(paths) == 2
@@ -209,7 +137,7 @@ def test_resolve_and_validate_inputs_returns_first_image_size(tmp_path):
 
 
 def test_resolve_and_validate_inputs_rejects_missing_file(tmp_path):
-    editor = ImageEditor(model_name="flux2-klein")
+    editor = ImageEditor()
     missing = tmp_path / "missing.png"
 
     with pytest.raises(FileNotFoundError, match="Input image not found"):
@@ -218,14 +146,14 @@ def test_resolve_and_validate_inputs_rejects_missing_file(tmp_path):
 
 def test_resolve_and_validate_inputs_rejects_empty_list():
     """Empty image_paths raises ValueError (no fallback to defaults)."""
-    editor = ImageEditor(model_name="flux2-klein")
+    editor = ImageEditor()
 
     with pytest.raises(ValueError, match="must be non-empty"):
         editor._resolve_and_validate_inputs([])
 
 
 def test_resolve_and_validate_inputs_rejects_directory(tmp_path):
-    editor = ImageEditor(model_name="flux2-klein")
+    editor = ImageEditor()
     subdir = tmp_path / "subdir"
     subdir.mkdir()
 
@@ -239,24 +167,19 @@ def test_resolve_and_validate_inputs_rejects_corrupt_image(tmp_path):
     corrupt = tmp_path / "corrupt.png"
     corrupt.write_bytes(b"not a valid image file at all")
 
-    editor = ImageEditor(model_name="flux2-klein")
+    editor = ImageEditor()
     with pytest.raises(InvalidImageError):
         editor._resolve_and_validate_inputs([str(corrupt)])
 
 
 def test_resolve_and_validate_inputs_size_in_same_open_as_verify(tmp_path):
-    """First image is opened once for both size lookup and verify.
-
-    This is the I/O optimization: previously the helper opened the first
-    image twice (once for verify, once for size). Now both happen in one
-    open (.size is a free header lookup before verify() walks the file).
-    """
+    """First image is opened once for both size lookup and verify."""
     from PIL import Image as PILImage
 
     image = tmp_path / "a.png"
     PILImage.new("RGB", (100, 200), "red").save(image)
 
-    editor = ImageEditor(model_name="flux2-klein")
+    editor = ImageEditor()
 
     real_open = PILImage.open
     open_count = 0
@@ -284,7 +207,7 @@ def test_resolve_and_validate_inputs_multi_image_one_open_per_file(tmp_path):
     PILImage.new("RGB", (1024, 768), "blue").save(image_b)
     PILImage.new("RGB", (320, 240), "green").save(image_c)
 
-    editor = ImageEditor(model_name="flux2-klein")
+    editor = ImageEditor()
 
     real_open = PILImage.open
     open_count = 0
@@ -299,7 +222,7 @@ def test_resolve_and_validate_inputs_multi_image_one_open_per_file(tmp_path):
             [str(image_a), str(image_b), str(image_c)]
         )
 
-    assert open_count == 3  # one open per image, no extra size re-read
+    assert open_count == 3
     assert size == (640, 480)
 
 
@@ -310,9 +233,8 @@ def test_resolve_and_validate_inputs_expands_user_and_resolves(tmp_path):
     image = tmp_path / "a.png"
     PILImage.new("RGB", (50, 50), "red").save(image)
 
-    editor = ImageEditor(model_name="flux2-klein")
+    editor = ImageEditor()
     paths, _ = editor._resolve_and_validate_inputs([str(image)])
 
     assert paths[0].is_absolute()
     assert paths[0] == image.resolve()
-

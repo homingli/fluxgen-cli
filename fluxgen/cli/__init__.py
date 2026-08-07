@@ -101,7 +101,7 @@ def suppress_external_output(enabled):
     """Redirect stdout/stderr to ``/dev/null`` for the duration of the block.
 
     Used while ``--silent`` is set so that progress bars / status
-    lines emitted by underlying libraries (mflux, diffusers,
+    lines emitted by underlying libraries (mflux,
     huggingface_hub) don't bypass our own logger filter. When
     ``enabled`` is False, the context manager is a no-op (via
     :class:`contextlib.nullcontext`).
@@ -181,15 +181,14 @@ def get_parser(config, version, interactive=False):
 
     Note on import cost: ``commands`` is imported at the top of this
     module for ``handle_generate`` / ``handle_edit`` re-exports, so
-    ``fluxgen.editor`` (diffusers, huggingface_hub) and
-    ``fluxgen.generator`` (mflux) are pulled in at parser-build time
-    even for ``--help`` / ``--version``. The pre-split single-module
-    layout paid the same cost; the post-split package keeps it. The
-    passthrough-flag fast path (``main()``) skips ``load_config`` on
-    ``--help`` / ``--version`` but cannot avoid the import-time
-    transitive cost without a more invasive lazy-import refactor
-    that would also break the existing ``patch.object(cli, X)`` test
-    contracts.
+    ``fluxgen.editor`` / ``fluxgen.generator`` (mflux) are pulled in
+    at parser-build time even for ``--help`` / ``--version``. The
+    pre-split single-module layout paid the same cost; the post-split
+    package keeps it. The passthrough-flag fast path (``main()``)
+    skips ``load_config`` on ``--help`` / ``--version`` but cannot
+    avoid the import-time transitive cost without a more invasive
+    lazy-import refactor that would also break the existing
+    ``patch.object(cli, X)`` test contracts.
     """
     verbosity_parent = argparse.ArgumentParser(add_help=False)
     add_verbosity_flags(verbosity_parent)
