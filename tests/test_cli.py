@@ -59,10 +59,6 @@ def test_edit_default_output_uses_random_filename(tmp_path):
         output_dir="output",
         steps=None,
         guidance=1.0,
-        # add_edit_parser sets default=EDIT_DEFAULT_TRUE_CFG for
-        # this attribute; the test bypasses argparse so we set it
-        # explicitly here.
-        true_cfg_scale=4.0,
         timer=False,
         width=None,
         height=None,
@@ -529,7 +525,7 @@ def test_normal_command_still_loads_config():
     handle_generate.assert_called_once()
 
 
-# ── Cleanup pass: __version__, --true-cfg-scale, max_edit_dimension ───────
+# ── Cleanup pass: __version__, max_edit_dimension ───────
 
 
 def test_fluxgen_package_exposes_version():
@@ -611,9 +607,9 @@ def test_fluxgen_package_version_falls_back_without_metadata(monkeypatch):
     importlib.metadata.version = _Boom()
     try:
         reloaded = importlib.reload(fluxgen)
-        # The fallback literal is "0.3.3" — locked here so the contract
+        # The fallback literal is "0.4.0" — locked here so the contract
         # is grep-able alongside pyproject.toml.
-        assert reloaded.__version__ == "0.3.3"
+        assert reloaded.__version__ == "0.4.0"
     finally:
         importlib.metadata.version = saved
         importlib.reload(fluxgen)
@@ -635,7 +631,6 @@ def test_handle_edit_passes_max_dimension_from_config(tmp_path):
         output_dir="output",
         steps=None,
         guidance=1.0,
-        true_cfg_scale=4.0,
         seed=None,
         timer=False,
         width=None,
@@ -667,7 +662,6 @@ def test_handle_edit_default_max_dimension_when_no_config(tmp_path):
         output_dir="output",
         steps=None,
         guidance=1.0,
-        true_cfg_scale=4.0,
         seed=None,
         timer=False,
         width=None,
@@ -697,7 +691,6 @@ def test_handle_edit_invalid_max_dimension_falls_back(tmp_path, caplog):
         output_dir="output",
         steps=None,
         guidance=1.0,
-        true_cfg_scale=4.0,
         seed=None,
         timer=False,
         width=None,
@@ -733,45 +726,30 @@ def test_handle_edit_invalid_max_dimension_falls_back(tmp_path, caplog):
         ), f"no max_edit_dimension warning logged for config={bad!r}"
 
 
-def test_handle_edit_threads_true_cfg_scale(tmp_path):
-    """--true-cfg-scale (or args.true_cfg_scale) is forwarded to editor.edit."""
-    cli = load_cli_without_mflux()
-    input_image = tmp_path / "input.png"
-    input_image.write_bytes(b"fake")
-
-    args = SimpleNamespace(
-        image=[str(input_image)],
-        prompt="make it sunset",
-        output=None,
-        output_dir="output",
-        steps=None,
-        guidance=1.0,
-        true_cfg_scale=2.5,  # user override
-        seed=None,
-        timer=False,
-        width=None,
-        height=None,
-    )
-
-    with patch("fluxgen.editor.ImageEditor") as mock_editor_cls:
-        editor = mock_editor_cls.return_value
-        cli.handle_edit(args)
-
-    assert editor.edit.call_args.kwargs["true_cfg_scale"] == 2.5
-
-
-def test_edit_parser_accepts_true_cfg_scale_flag():
-    """`fluxgen edit --true-cfg-scale 2.5 …` parses into args.true_cfg_scale."""
+def test_edit_parser_default_model_is_flux2_klein_edit():
+    """`fluxgen edit …` defaults --model to flux2-klein-edit."""
     cli = load_cli_without_mflux()
     config = {}
 
     with patch.object(cli, "load_config", return_value=config):
         args = cli.get_parser(config, "0.0.0-test").parse_args(
-            ["edit", "image.png", "do thing", "--true-cfg-scale", "2.5"]
+            ["edit", "image.png", "do thing"]
         )
 
     assert args.command == "edit"
-    assert args.true_cfg_scale == 2.5
+    assert args.model == "flux2-klein-edit"
+
+
+def test_edit_parser_rejects_legacy_flux2_klein_id():
+    """Bare ``flux2-klein`` is not accepted (no alias)."""
+    cli = load_cli_without_mflux()
+    config = {}
+
+    with patch.object(cli, "load_config", return_value=config), \
+         pytest.raises(SystemExit):
+        cli.get_parser(config, "0.0.0-test").parse_args(
+            ["edit", "image.png", "do thing", "--model", "flux2-klein"]
+        )
 
 
 # ── resolve_image_dimensions (priority chain) ──────────────────────────────

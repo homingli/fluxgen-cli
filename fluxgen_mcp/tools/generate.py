@@ -176,9 +176,8 @@ async def generate_image_tool(
         ) from exc
     except (OSError, RuntimeError) as exc:
         # Catch-all for model-side failures that EXCEPTION_MAP does
-        # not cover (CUDA OOM, NaN outputs from diffusers, GGUF
-        # read errors, etc.). Map to E_MODEL so the agent sees a
-        # clear category.
+        # not cover (MLX OOM, etc.). Map to E_MODEL so the agent
+        # sees a clear category.
         logger.warning(
             "tool generate_image: %s: %s", type(exc).__name__, exc,
         )

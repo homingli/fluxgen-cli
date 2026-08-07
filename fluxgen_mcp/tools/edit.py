@@ -19,11 +19,16 @@ import asyncio
 import logging
 import random
 import time
-from pathlib import Path
 from typing import Any
 
 from fluxgen.editor import ImageEditor
 from fluxgen.generator import generate_random_filename
+from fluxgen.models import (
+    DEFAULT_EDIT_MODEL,
+    EDIT_MODEL_RENAMES,
+    REMOVED_EDIT_MODELS,
+    SUPPORTED_EDIT_MODELS,
+)
 
 from fluxgen_mcp.config import MCPSettings
 from fluxgen_mcp.errors import E_BAD_ARG, E_MODEL, MCPError, EXCEPTION_MAP
@@ -33,7 +38,12 @@ from fluxgen_mcp.validation import validate_edit_inputs
 logger = logging.getLogger("fluxgen-mcp")
 
 
-_DEFAULT_EDIT_MODEL = "flux2-klein"
+def _edit_model_error_hint(model_name: str) -> str:
+    if model_name in EDIT_MODEL_RENAMES:
+        return f" (renamed to {EDIT_MODEL_RENAMES[model_name]!r})"
+    if model_name in REMOVED_EDIT_MODELS:
+        return f" (removed; use {DEFAULT_EDIT_MODEL!r})"
+    return ""
 
 
 def _resolve_seed(seed: int | None) -> int:
@@ -113,23 +123,22 @@ async def edit_image_tool(
     check_pause(settings)
     validate_prompt(settings, prompt)
 
-    target_model = model or _DEFAULT_EDIT_MODEL
+    target_model = model or DEFAULT_EDIT_MODEL
     if target_model not in settings.allowed_edit_models:
+        hint = _edit_model_error_hint(target_model)
         raise MCPError(
             E_BAD_ARG,
-            f"model {target_model!r} not in allowed_edit_models",
+            f"model {target_model!r} not in allowed_edit_models{hint}",
+        )
+    if target_model not in SUPPORTED_EDIT_MODELS:
+        hint = _edit_model_error_hint(target_model)
+        raise MCPError(
+            E_BAD_ARG,
+            f"model {target_model!r} not supported by fluxgen-cli{hint}",
         )
 
     if not input_paths:
         raise MCPError(E_BAD_ARG, "input_paths must be non-empty")
-
-    if target_model == "qwen-image-edit" and len(input_paths) > 1:
-        # CLI rejects this at edit time too; replicate here so the
-        # MCP layer fails fast without loading the pipeline.
-        raise MCPError(
-            E_BAD_ARG,
-            "qwen-image-edit only supports a single input image",
-        )
 
     resolved_inputs = validate_edit_inputs(
         input_paths,
@@ -151,11 +160,7 @@ async def edit_image_tool(
         editor = ImageEditor(model_name=target_model)
 
         def _run_edit() -> None:
-            # `_load_pipeline` is idempotent — both
-            # `_load_qwen_pipeline` and `_load_mflux_pipeline` early-
-            # return when their respective pipeline handle is already
-            # populated (fluxgen/editor.py:60, fluxgen/editor.py:105).
-            editor._load_pipeline()  # noqa: SLF001 — same pattern as CLI
+            editor.load()
             editor.edit(
                 image_paths=[str(p) for p in resolved_inputs],
                 prompt=prompt,
@@ -178,8 +183,7 @@ async def edit_image_tool(
             output_path=None,
         ) from exc
     except (OSError, RuntimeError) as exc:
-        # Model-load failures (missing GGUF / safetensors weights),
-        # CUDA OOM, NaN outputs from the diffusion pipeline, etc.
+        # Model-load failures, MLX OOM, NaN outputs, etc.
         logger.warning(
             "tool edit_image: %s: %s", type(exc).__name__, exc,
         )

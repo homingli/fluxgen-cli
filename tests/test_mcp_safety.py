@@ -46,7 +46,7 @@ def _settings(**overrides) -> MCPSettings:
         max_queue_depth=4,
         per_call_timeout_s=600.0,
         allowed_generation_models=("zimage-turbo",),
-        allowed_edit_models=("flux2-klein",),
+        allowed_edit_models=("flux2-klein-edit",),
         prompt_blocklist=(),
         audit_log_path="~/.fluxgen-mcp-audit-test.log",
         pause_sentinel_path="~/.fluxgen-mcp-paused-test",

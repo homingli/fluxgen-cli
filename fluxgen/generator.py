@@ -1,115 +1,31 @@
 import logging
 import os
 import random
-import threading
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from mflux.models.common.config import ModelConfig
+from fluxgen.models import (
+    DEFAULT_MODEL,
+    ModelManager,
+    SUPPORTED_MODELS,
+    require_capability,
+    resolve_inference_params,
+)
 from fluxgen.styling import StyleManager
-
-# Supported model identifiers
-SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
-DEFAULT_MODEL = "zimage-turbo"
 
 logger = logging.getLogger("fluxgen")
 
+# Re-export registry symbols so existing ``from fluxgen.generator import …``
+# call sites (CLI, MCP, tests) keep working.
+__all__ = [
+    "DEFAULT_MODEL",
+    "SUPPORTED_MODELS",
+    "ModelManager",
+    "generate_image",
+    "generate_random_filename",
+]
 
-class ModelManager:
-    """Manages model instances with caching and multi-model support.
-
-    Supported models:
-      - zimage-turbo   (default) — fast, guidance-free ZImage variant
-      - zimage                 — full ZImage with guidance support
-      - flux2-klein4b          — FLUX.2 Klein 4B model (default)
-      - flux2-klein9b          — FLUX.2 Klein 9B model
-    """
-
-    _instance = None
-    _current_config = None
-    _lock = threading.Lock()
-
-    @classmethod
-    def get_model(cls, model_name: str, quantize: int | None = None):
-        """Return a cached model instance, re-creating only when config changes."""
-        model_name = model_name.lower()
-        if model_name not in _MODEL_DISPATCH:
-            raise ValueError(
-                f"Unsupported model '{model_name}'. "
-                f"Choose from: {', '.join(_MODEL_DISPATCH)}"
-            )
-
-        config_key = (model_name, quantize)
-        with cls._lock:
-            if cls._instance is None or cls._current_config != config_key:
-                factory = _MODEL_DISPATCH[model_name]
-                cls._instance = factory(quantize)
-                cls._current_config = config_key
-        return cls._instance
-
-    @classmethod
-    def reset(cls):
-        """Clear the cached model (useful for switching models)."""
-        with cls._lock:
-            cls._instance = None
-            cls._current_config = None
-
-
-# ── Model-specific default parameters ────────────────────────────────────────
-
-MODEL_DEFAULTS = {
-    "zimage-turbo": {
-        "steps": 4,
-    },
-    "zimage": {
-        "guidance": 4.0,       # supports classifier-free guidance
-        "steps": 20,
-    },
-    "flux2-klein4b": {
-        "guidance": 3.5,
-        "steps": 4,
-    },
-    "flux2-klein9b": {
-        "guidance": 3.5,
-        "steps": 4,
-    },
-}
-
-
-def _make_zimage(quantize):
-    from mflux.models.z_image import ZImage
-    return ZImage(quantize=quantize, model_config=ModelConfig.z_image())
-
-
-def _make_zimage_turbo(quantize):
-    from mflux.models.z_image import ZImageTurbo
-    return ZImageTurbo(quantize=quantize, model_config=ModelConfig.z_image_turbo())
-
-
-def _make_flux2_klein4b(quantize):
-    from mflux.models.flux2.variants import Flux2Klein
-    return Flux2Klein(quantize=quantize, model_config=ModelConfig.flux2_klein_4b())
-
-
-def _make_flux2_klein9b(quantize):
-    from mflux.models.flux2.variants import Flux2Klein
-    return Flux2Klein(quantize=quantize, model_config=ModelConfig.flux2_klein_9b())
-
-
-def _make_flux2_klein_edit(quantize):
-    from mflux.models.flux2.variants import Flux2KleinEdit
-    return Flux2KleinEdit(quantize=quantize, model_config=ModelConfig.flux2_klein_9b())
-
-
-# Explicit dispatch table: model_name → (instantiation_fn, supported check)
-_MODEL_DISPATCH: dict[str, Callable[[int | None], Any]] = {
-    "zimage": _make_zimage,
-    "zimage-turbo": _make_zimage_turbo,
-    "flux2-klein4b": _make_flux2_klein4b,
-    "flux2-klein9b": _make_flux2_klein9b,
-    "flux2-klein-edit": _make_flux2_klein_edit,
-}
 
 def generate_random_filename() -> str:
     """Generate a random 3-word filename with .png extension.
@@ -144,6 +60,7 @@ try:
 except ImportError:
     _random_word = None
 
+
 def generate_image(
     prompt: str,
     preset: dict,
@@ -176,17 +93,15 @@ def generate_image(
         # the canonical path rather than the raw CLI string.
         init_image = validate_image_file(init_image, label="reference image")
 
-    # Resolve model-specific defaults
-    defaults = MODEL_DEFAULTS.get(model_name.lower(), MODEL_DEFAULTS[DEFAULT_MODEL])
-    steps = preset.get("steps", defaults["steps"])
-    guidance = preset.get("guidance", defaults["guidance"])
+    spec = require_capability(model_name, "generate")
+    steps, guidance = resolve_inference_params(spec, preset=preset)
 
-    logger.info(f"Using model '{model_name}' with {steps} steps, seed={seed}")
+    logger.info(f"Using model '{spec.name}' with {steps} steps, seed={seed}")
 
     # Use pre-loaded model or cache lookup
     if model is None:
         model = ModelManager.get_model(
-            model_name=model_name,
+            model_name=spec.name,
             quantize=preset.get("quantize"),
         )
 
@@ -202,7 +117,7 @@ def generate_image(
     )
 
     # Add guidance only for models that support it
-    if model_name.lower() != "zimage-turbo":
+    if guidance is not None:
         gen_kwargs["guidance"] = guidance
 
     # Generate the image

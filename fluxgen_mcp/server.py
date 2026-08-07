@@ -14,7 +14,7 @@ stream.
 
 Per-call timeout: enforced via `asyncio.wait_for` (Python 3.10+
 compatible — `asyncio.timeout` is 3.11+). The thread itself does
-not get killed mid-inference (mflux/diffusers don't support that
+not get killed mid-inference (mflux doesn't support that
 gracefully) but the wrapper returns `E_TIMEOUT` once the wall-clock
 budget elapses so the agent isn't left waiting forever.
 """
@@ -332,8 +332,7 @@ def build_server(settings: MCPSettings) -> MCPServer:
         name="edit_image",
         description=(
             "Edit one or more input images using a natural-language "
-            "instruction. flux2-klein supports multi-image input; "
-            "qwen-image-edit is single-image only."
+            "instruction. Supports multi-image input via flux2-klein-edit."
         ),
     )
     async def edit_image(

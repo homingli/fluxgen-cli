@@ -1,7 +1,7 @@
 """Tests for the generate_image tool wrapper.
 
 The underlying `fluxgen.generator.generate_image` is mocked at the
-import seam so the tests don't load mflux / torch.
+import seam so the tests don't load mflux.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _settings(tmp_path: Path, **overrides) -> MCPSettings:
         max_queue_depth=4,
         per_call_timeout_s=600.0,
         allowed_generation_models=("zimage-turbo", "zimage"),
-        allowed_edit_models=("flux2-klein",),
+        allowed_edit_models=("flux2-klein-edit",),
         prompt_blocklist=(),
         audit_log_path=str(tmp_path / "audit.log"),
         pause_sentinel_path=str(tmp_path / "paused"),

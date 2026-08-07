@@ -1,7 +1,7 @@
 """Tests for the edit_image tool wrapper.
 
 The underlying ImageEditor is mocked at the seam so the tests
-don't load diffusers / GGUF weights.
+don't load mflux weights.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import pytest
 from PIL import Image
 
 from fluxgen.exceptions import FluxgenError
+from fluxgen.models import DEFAULT_EDIT_MODEL
 from fluxgen_mcp.config import MCPSettings
 from fluxgen_mcp.errors import (
     E_BAD_ARG,
@@ -34,7 +35,7 @@ def _settings(tmp_path: Path, **overrides) -> MCPSettings:
         max_queue_depth=4,
         per_call_timeout_s=600.0,
         allowed_generation_models=("zimage-turbo",),
-        allowed_edit_models=("flux2-klein", "qwen-image-edit"),
+        allowed_edit_models=(DEFAULT_EDIT_MODEL,),
         prompt_blocklist=(),
         audit_log_path=str(tmp_path / "audit.log"),
         pause_sentinel_path=str(tmp_path / "paused"),
@@ -90,7 +91,7 @@ async def test_edit_basic(tmp_path: Path, mock_editor):
         height=None,
         output_subdir="edits",
     )
-    assert result["model"] == "flux2-klein"
+    assert result["model"] == DEFAULT_EDIT_MODEL
     assert Path(result["path"]).exists()
     assert len(mock_editor) == 1
     assert mock_editor[0].edit.call_args.kwargs["prompt"] == "make it sunset"
@@ -98,7 +99,7 @@ async def test_edit_basic(tmp_path: Path, mock_editor):
 
 
 async def test_edit_rejects_model_not_in_whitelist(tmp_path: Path, mock_editor):
-    s = _settings(tmp_path, allowed_edit_models=("flux2-klein",))
+    s = _settings(tmp_path, allowed_edit_models=(DEFAULT_EDIT_MODEL,))
     inp = _make_png(tmp_path / "input.png", (100, 100))
     with pytest.raises(MCPError) as exc:
         await edit_image_tool(
@@ -114,18 +115,18 @@ async def test_edit_rejects_model_not_in_whitelist(tmp_path: Path, mock_editor):
             output_subdir="default",
         )
     assert exc.value.code == E_BAD_ARG
+    assert "removed" in exc.value.message
 
 
-async def test_edit_rejects_multiple_inputs_for_qwen(tmp_path: Path, mock_editor):
-    s = _settings(tmp_path)
-    inp1 = _make_png(tmp_path / "a.png", (100, 100))
-    inp2 = _make_png(tmp_path / "b.png", (100, 100))
+async def test_edit_rejects_legacy_flux2_klein_with_rename_hint(tmp_path: Path, mock_editor):
+    s = _settings(tmp_path, allowed_edit_models=(DEFAULT_EDIT_MODEL,))
+    inp = _make_png(tmp_path / "input.png", (100, 100))
     with pytest.raises(MCPError) as exc:
         await edit_image_tool(
             settings=s,
-            input_paths=[str(inp1), str(inp2)],
+            input_paths=[str(inp)],
             prompt="x",
-            model="qwen-image-edit",
+            model="flux2-klein",
             seed=None,
             steps=None,
             guidance=None,
@@ -134,6 +135,7 @@ async def test_edit_rejects_multiple_inputs_for_qwen(tmp_path: Path, mock_editor
             output_subdir="default",
         )
     assert exc.value.code == E_BAD_ARG
+    assert "renamed to 'flux2-klein-edit'" in exc.value.message
 
 
 async def test_edit_rejects_oversized_input(tmp_path: Path, mock_editor):
@@ -227,7 +229,7 @@ async def test_edit_maps_known_exception_to_e_model(tmp_path: Path, monkeypatch,
         lambda *, model_name, quantize=None: MagicMock(
             model_name=model_name,
             quantize=quantize,
-            _load_pipeline=lambda: None,
+            load=lambda: None,
             edit=MagicMock(side_effect=boom),
         ),
     )
@@ -251,9 +253,9 @@ async def test_edit_maps_known_exception_to_e_model(tmp_path: Path, monkeypatch,
 
 
 async def test_edit_maps_oserror_to_e_model(tmp_path: Path, monkeypatch, mock_editor):
-    """`OSError` raised inside `_load_pipeline()` (e.g. model file
-    missing) is caught by the widening clause and surfaces as
-    `E_MODEL` rather than `E_INTERNAL`.
+    """`OSError` raised inside `load()` (e.g. model file missing) is
+    caught by the widening clause and surfaces as `E_MODEL` rather
+    than `E_INTERNAL`.
     """
     def load_boom(self=None):
         raise OSError("model file not found")
@@ -263,7 +265,7 @@ async def test_edit_maps_oserror_to_e_model(tmp_path: Path, monkeypatch, mock_ed
         lambda *, model_name, quantize=None: MagicMock(
             model_name=model_name,
             quantize=quantize,
-            _load_pipeline=MagicMock(side_effect=load_boom),
+            load=MagicMock(side_effect=load_boom),
             edit=MagicMock(),
         ),
     )

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 - 2026-08-07
+
+- Removed `qwen-image-edit` (Diffusers/GGUF/torch stack). Editing is mflux-only.
+- Renamed edit model id from `flux2-klein` to `flux2-klein-edit` (no alias).
+- Dropped unused deps: `torch`, `diffusers`, `transformers`, `accelerate`, `torchvision`, `gguf`.
+- Consolidated model IDs / defaults / factories into `fluxgen/models.py`.
+- Fixed guidance defaults: `Preset.guidance = None` no longer shadows per-model guidance.
+- Removed Qwen-only `--true-cfg-scale` CLI flag.
+
 ## 0.3.3 - 2026-07-22
 
 - Bumped `mflux` floor to `>=0.18.0` (FLUX.2-klein-9b-kv KV-cache speedup on multi-ref edits, `text_encoder_2` crash fix).

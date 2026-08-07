@@ -128,3 +128,43 @@ def test_load_mcp_settings_drops_invalid_regex(tmp_path, monkeypatch):
     assert len(s.prompt_blocklist) == 1
     assert s.prompt_blocklist[0].search("good")
     assert not s.prompt_blocklist[0].search("[invalid")
+
+
+def test_load_mcp_settings_remaps_legacy_flux2_klein(tmp_path, monkeypatch, caplog):
+    """``flux2-klein`` in allowed_edit_models becomes ``flux2-klein-edit``."""
+    import logging
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".fluxgen.toml").write_text(
+        textwrap.dedent(
+            """\
+            [mcp]
+            allowed_edit_models = ["flux2-klein"]
+            """
+        )
+    )
+    with caplog.at_level(logging.WARNING, logger="fluxgen-mcp"):
+        s = load_mcp_settings()
+    assert s.allowed_edit_models == ("flux2-klein-edit",)
+    assert any("renamed" in rec.message for rec in caplog.records)
+
+
+def test_load_mcp_settings_drops_removed_qwen(tmp_path, monkeypatch, caplog):
+    """``qwen-image-edit`` is dropped from allowed_edit_models."""
+    import logging
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".fluxgen.toml").write_text(
+        textwrap.dedent(
+            """\
+            [mcp]
+            allowed_edit_models = ["qwen-image-edit", "flux2-klein-edit"]
+            """
+        )
+    )
+    with caplog.at_level(logging.WARNING, logger="fluxgen-mcp"):
+        s = load_mcp_settings()
+    assert s.allowed_edit_models == ("flux2-klein-edit",)
+    assert any("removed" in rec.message for rec in caplog.records)
