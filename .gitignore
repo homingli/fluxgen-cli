@@ -43,3 +43,17 @@ Thumbs.db
 # Ruff cache
 .ruff_cache/
 .fluxgen.toml
+
+# Local agent tooling and session artifacts
+.agents/
+.mcp.json
+.pi-subagents/
+
+# Local dev tooling / personal setup
+.python-version
+Brewfile
+
+# Personal files at repo root
+/*.jpg
+/*.jpeg
+/*.png
