@@ -95,9 +95,11 @@ async def generate_image_tool(
     check_pause(settings)
     validate_prompt(settings, prompt)
 
-    # Model whitelist — the CLI has a wider model set (incl.
-    # krea2 once it ships); the MCP server exposes only the
-    # deployment-approved list.
+    # Model whitelist — the MCP server exposes only the deployment-approved
+    # list. The default derives from the CLI registry (so ``krea2`` is allowed
+    # unless a deployment pins ``allowed_generation_models`` in ``.fluxgen.toml``);
+    # deployments that want to keep large first-run downloads off the MCP
+    # surface can drop it from that list.
     target_model = model or DEFAULT_MODEL
     if target_model not in settings.allowed_generation_models:
         raise MCPError(

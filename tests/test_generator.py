@@ -208,5 +208,55 @@ def test_require_capability_rejects_wrong_capability():
         require_capability(DEFAULT_EDIT_MODEL, "generate")
 
 
+def test_krea2_is_generate_only_with_turbo_defaults():
+    """Krea 2 Turbo is an 8-step-distilled txt2img model (CFG 1.0)."""
+    spec = get_model_spec("krea2")
+    assert spec.capabilities == {"generate"}
+    assert spec.steps == 8
+    assert spec.guidance == 1.0
+    assert "krea2" not in SUPPORTED_EDIT_MODELS
+    with pytest.raises(ValueError, match="does not support edit"):
+        require_capability("krea2", "edit")
+
+
+def test_resolve_inference_params_krea2_spec_defaults():
+    spec = get_model_spec("krea2")
+    steps, guidance = resolve_inference_params(
+        spec,
+        preset={"steps": None, "guidance": None, "quantize": 8},
+    )
+    assert steps == 8
+    assert guidance == 1.0
+
+
+def test_generate_image_passes_krea2_default_guidance(tmp_path):
+    """End-to-end: a preset whose steps are None must not lose Krea 2's 8 steps
+    or its 1.0 CFG default.
+    """
+    from fluxgen.generator import generate_image
+
+    mock_model = MagicMock()
+    mock_result = MagicMock()
+    mock_result.image = MagicMock()
+    mock_model.generate_image.return_value = mock_result
+
+    generate_image(
+        prompt="a fox",
+        preset={"steps": None, "guidance": None, "quantize": 8},
+        seed=1,
+        output=str(tmp_path / "out.png"),
+        width=64,
+        height=64,
+        style="none",
+        model_name="krea2",
+        model=mock_model,
+    )
+
+    kwargs = mock_model.generate_image.call_args.kwargs
+    assert kwargs["guidance"] == 1.0
+    assert kwargs["num_inference_steps"] == 8
+    mock_result.image.save.assert_called_once()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

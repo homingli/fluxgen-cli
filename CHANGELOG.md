@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added `krea2` (Krea 2 Turbo) as a generation-only model: 8-step-distilled, CFG 1.0,
+  ~33 GB first-run download (~32 GB+ unified memory recommended). Use `--steps 8 -q 8`;
+  the shared presets (5/9/16 steps) predate its distillation and are not its sweet spot.
+  Strength-based img2img works via `--init-image` (not Krea's hosted style-reference path).
+- Bumped `mflux` floor to `>=0.19.1` (Krea 2 landed in 0.18.1; 0.19.1 adds security
+  dependency floors).
+
 ## 0.4.0 - 2026-08-07
 
 - Removed `qwen-image-edit` (Diffusers/GGUF/torch stack). Editing is mflux-only.
