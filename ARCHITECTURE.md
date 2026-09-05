@@ -3,7 +3,7 @@
 `fluxgen-cli` is a small Python CLI with two image workflows, both
 backed by `mflux` on Apple Silicon (MLX):
 
-- generation (`zimage*`, `flux2-klein*`)
+- generation (`zimage*`, `flux2-klein*`, `krea2`)
 - instruction editing (`flux2-klein-edit`)
 
 ## Entry Point
@@ -55,6 +55,10 @@ Supported generation backends:
 - `zimage`
 - `flux2-klein4b`
 - `flux2-klein9b`
+- `krea2` (Krea 2 Turbo; 8-step distilled, ~33 GB download, ~32 GB+ unified memory)
+
+`krea2` is generation-only — there is no mflux edit checkpoint, so it is not
+registered under `fluxgen edit`.
 
 ## Editing Flow
 

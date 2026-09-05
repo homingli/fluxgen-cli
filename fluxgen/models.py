@@ -62,6 +62,16 @@ def _make_flux2_klein_edit(quantize: int | None):
     return Flux2KleinEdit(quantize=quantize, model_config=ModelConfig.flux2_klein_9b())
 
 
+def _make_krea2(quantize: int | None):
+    # Krea 2 Turbo — an 8-step-distilled single-stream MMDiT on the
+    # Qwen-Image stack. Requires mflux >= 0.19.1 (Krea 2 landed upstream
+    # in 0.18.1; 0.19.1 adds the security dependency floors).
+    from mflux.models.common.config import ModelConfig
+    from mflux.models.krea2 import Krea2
+
+    return Krea2(quantize=quantize, model_config=ModelConfig.krea2())
+
+
 _GENERATE = frozenset({"generate"})
 _EDIT = frozenset({"edit"})
 
@@ -93,6 +103,17 @@ MODELS: dict[str, ModelSpec] = {
         steps=4,
         guidance=3.5,
         factory=_make_flux2_klein9b,
+    ),
+    # Krea 2 Turbo: timestep-distilled to 8 steps (CFG 1.0). Generation-only;
+    # there is no mflux edit checkpoint, so it must not appear under ``edit``.
+    # Recommend ``--steps 8`` — the shared presets (5/9/16) predate its
+    # distillation and are not its sweet spot.
+    "krea2": ModelSpec(
+        name="krea2",
+        capabilities=_GENERATE,
+        steps=8,
+        guidance=1.0,
+        factory=_make_krea2,
     ),
     "flux2-klein-edit": ModelSpec(
         name="flux2-klein-edit",

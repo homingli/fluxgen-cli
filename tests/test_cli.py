@@ -22,7 +22,7 @@ def load_cli_without_mflux():
     fake_generator = MagicMock()
     fake_generator.generate_image = MagicMock()
     fake_generator.generate_random_filename = MagicMock(return_value="fake.png")
-    fake_generator.SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
+    fake_generator.SUPPORTED_MODELS = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b", "krea2"]
     fake_generator.DEFAULT_MODEL = "zimage-turbo"
 
     # Ensure ``fluxgen.cli`` and its submodules are loaded at least

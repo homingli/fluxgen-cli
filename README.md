@@ -2,7 +2,7 @@
 
 A CLI and Interactive REPL for local AI image generation and instruction-based image editing on macOS using mflux.
 
-- **Generate images** using state-of-the-art `mflux` backends: `zimage-turbo`, `zimage`, `flux2-klein4b`, and `flux2-klein9b`.
+- **Generate images** using state-of-the-art `mflux` backends: `zimage-turbo`, `zimage`, `flux2-klein4b`, `flux2-klein9b`, and `krea2` (Krea 2 Turbo).
 - **Edit images** via natural language instructions using `flux2-klein-edit` (multi-image support).
 - **Interactive REPL Mode** to keep models cached persistently in memory for near-instant successive runs.
 - **Robust Path Security & Validation** protecting against directory traversal and corrupted image inputs.
@@ -68,6 +68,25 @@ fluxgen gen "Portrait sketch" --resolution 3:4 # portrait ratio
 fluxgen gen "Quick test" --width 800           # override width, keep preset height
 ```
 
+#### Krea 2 (`--model krea2`)
+
+`krea2` runs [Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo), an 8-step-distilled
+checkpoint (CFG 1.0). Recommended invocation:
+
+```bash
+fluxgen gen "A photograph of a red fox in a sunlit forest" --model krea2 --steps 8 -q 8
+```
+
+Caveats:
+
+- The shared presets (`fast` 5 / `standard` 9 / `quality` 16 steps) predate this model's
+  8-step distillation and are not its sweet spot — pass `--steps 8` (or your own value)
+  explicitly for best quality.
+- First run downloads ~33 GB of weights (~24 GB transformer + text encoder + VAE).
+  Quantize with `-q 8`; budget for ~32 GB+ unified memory.
+- `--init-image` uses strength-based img2img (VAE encode + denoise). It is **not** Krea's
+  hosted style-reference path, which this CLI does not support.
+
 ### 2. Instruction-Based Image Editing
 
 The `edit` command uses `flux2-klein-edit` (MLX). **Supports editing multiple input images at once.**
@@ -116,7 +135,7 @@ fluxgen> help
 - `-v`, `--verbose`: Show debug output and full error tracebacks.
 
 ### Generation Options (`generate`, `gen`)
-- `--model [zimage-turbo|zimage|flux2-klein4b|flux2-klein9b]`: Model backend to use (default: `zimage-turbo`).
+- `--model [zimage-turbo|zimage|flux2-klein4b|flux2-klein9b|krea2]`: Model backend to use (default: `zimage-turbo`).
 - `-0`, `--fast`: Fast preset (fewer steps).
 - `-3`, `--standard`: Standard preset.
 - `-8`, `--quality`: Quality preset (higher steps).
@@ -233,7 +252,7 @@ max_prompt_chars = 2000
 max_concurrent_jobs = 1
 max_queue_depth = 4
 per_call_timeout_s = 600
-allowed_generation_models = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b"]
+allowed_generation_models = ["zimage-turbo", "zimage", "flux2-klein4b", "flux2-klein9b", "krea2"]
 allowed_edit_models = ["flux2-klein-edit"]
 prompt_blocklist = []
 audit_log_path = "~/.fluxgen-mcp-audit.log"
